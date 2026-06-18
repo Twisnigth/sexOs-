@@ -38,14 +38,17 @@ OVMF_VARS := $(BUILD)/OVMF_VARS.fd
 # ---- Sources ----------------------------------------------------------------
 CSRC := $(wildcard $(KDIR)/*.c)
 ASRC := $(wildcard $(KDIR)/*.asm)
+MCDIR := third_party/monocypher
+MCSRC := $(MCDIR)/monocypher.c $(MCDIR)/monocypher-ed25519.c
 OBJ  := $(patsubst $(KDIR)/%.c,$(OBJDIR)/%.o,$(CSRC)) \
-        $(patsubst $(KDIR)/%.asm,$(OBJDIR)/%_asm.o,$(ASRC))
+        $(patsubst $(KDIR)/%.asm,$(OBJDIR)/%_asm.o,$(ASRC)) \
+        $(patsubst $(MCDIR)/%.c,$(OBJDIR)/mc_%.o,$(MCSRC))
 
 # ---- Drapeaux de compilation (noyau autonome x86_64) ------------------------
 CFLAGS := -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector \
           -fno-stack-clash-protection -fno-pic -fno-pie -m64 -march=x86-64 \
           -mno-80387 -mno-mmx -mno-sse -mno-sse2 -mno-red-zone \
-          -mcmodel=kernel -O2 -g -I$(KDIR)
+          -mcmodel=kernel -O2 -g -I$(KDIR) -I$(MCDIR)
 
 LDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 \
            --build-id=none -T $(KDIR)/link.ld
@@ -60,6 +63,10 @@ $(OBJDIR)/%.o: $(KDIR)/%.c
 $(OBJDIR)/%_asm.o: $(KDIR)/%.asm
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
+
+$(OBJDIR)/mc_%.o: $(MCDIR)/%.c
+	@mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(KERNEL): $(OBJ) $(KDIR)/link.ld
 	@mkdir -p $(BUILD)
@@ -109,7 +116,7 @@ run-bios: $(ISO)
 
 # Avec réseau (user-mode) : carte e1000 + redirection du port 22 (SSH) vers 2222.
 run-net: $(ISO) $(OVMF_VARS)
-	$(QEMU) -M q35 -m 512M \
+	$(QEMU) -M q35 -m 512M -cpu qemu64,+rdrand \
 	    -drive if=pflash,unit=0,format=raw,readonly=on,file=$(OVMF_CODE) \
 	    -drive if=pflash,unit=1,format=raw,file=$(OVMF_VARS) \
 	    -netdev user,id=n0,hostfwd=tcp::2222-:22 \

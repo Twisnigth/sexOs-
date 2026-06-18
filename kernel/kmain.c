@@ -28,6 +28,7 @@
 #include "vfs.h"
 #include "users.h"
 #include "net.h"
+#include "crypto.h"
 #include "desktop.h"
 
 // -----------------------------------------------------------------------------
@@ -142,6 +143,10 @@ void kmain(void) {
 
     sti();                   // on active les interruptions
     kprintf("[cpu] interruptions activees\n");
+
+    // --- Cryptographie (CSPRNG + validation par vecteurs de test) ------------
+    csprng_init();
+    crypto_selftest();
 
     // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
     net_init();
