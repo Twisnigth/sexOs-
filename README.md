@@ -1,92 +1,142 @@
 # MonOS v2 — système d'exploitation x86_64 avec interface graphique
 
 MonOS v2 est la refonte « grande échelle » du mini-OS 16/32 bits initial (conservé
-dans [`legacy/`](legacy/)). Objectif : démarrer sur du **vrai matériel** (UEFI,
-fallback BIOS legacy), passer en **long mode 64 bits**, obtenir un **framebuffer
-linéaire**, puis bâtir progressivement pilotes, interface graphique, applications,
-utilisateurs et privilèges.
+dans [`legacy/`](legacy/)). Il démarre sur **UEFI** (et **BIOS legacy** en repli),
+passe en **long mode 64 bits**, obtient un **framebuffer linéaire**, et lance une
+**interface graphique multi-fenêtres** avec authentification, applications et
+séparation des privilèges.
 
-Le noyau est écrit en **C autonome (freestanding) + NASM** pour le bas niveau.
-Le démarrage (UEFI/BIOS, long mode, pagination initiale, framebuffer, memory map,
-ACPI) est délégué au chargeur **[Limine](https://github.com/limine-bootloader/limine)**,
-ce qui permet de concentrer l'effort sur le noyau lui-même.
+Le noyau est écrit en **C autonome (freestanding) + NASM**. Le démarrage (UEFI/BIOS,
+long mode, pagination initiale, framebuffer GOP, memory map, ACPI) est délégué au
+chargeur **[Limine](https://github.com/limine-bootloader/limine)**.
 
-> **État actuel : Phase 0 terminée.** L'image démarre en QEMU **UEFI (OVMF)** *et*
-> **BIOS legacy**, atteint le noyau 64 bits et affiche un écran d'accueil graphique
-> dans le framebuffer (titre, infos vidéo, mascotte). Les phases suivantes
-> (mémoire, interruptions, pilotes, GUI…) sont décrites dans la feuille de route.
+![Bureau MonOS](docs/desktop.png)
 
-![Splash MonOS v2](docs/splash.png)
+## Captures d'écran
 
-## Pourquoi Limine (et pas un bootloader UEFI maison) ?
+| Connexion | Explorateur | Privilèges |
+|-----------|-------------|-----------|
+| ![login](docs/login.png) | ![explorateur](docs/explorer.png) | ![privileges](docs/privileges.png) |
 
-- Une **seule image hybride** démarre en **UEFI et en BIOS legacy**, et elle est
-  directement **`dd`-able sur clé USB**.
-- Limine fournit ce dont on a besoin pour du matériel moderne : **long mode**,
-  **pagination initiale**, **framebuffer linéaire via GOP** (UEFI) ou VBE (BIOS),
-  **memory map**, **RSDP/ACPI**, infos **SMP**.
-- Le noyau reste un **ELF64 classique** compilé avec le `gcc` de l'hôte (pas besoin
-  de cross-compilateur ni d'écrire le PE32+/conventions UEFI à la main).
-
-L'esprit « on écrit nous-mêmes le noyau et tous les pilotes » est conservé ; on
-délègue seulement l'amorçage firmware, sans valeur pédagogique propre.
-
-## Feuille de route (développement incrémental, une étape testée à la fois)
-
-| Phase | Contenu | État |
-|------:|---------|------|
-| **0** | Socle de build, boot Limine UEFI+BIOS, framebuffer, splash + mascotte | ✅ **fait** |
-| 1 | GDT, IDT, exceptions, PIC→APIC, timer (PIT/LAPIC), log série | à venir |
-| 2 | Gestion mémoire : PMM (bitmap), VMM (pagination 64 bits), tas noyau | à venir |
-| 3 | Entrées PS/2 : clavier (AZERTY) + souris, file d'événements | à venir |
-| 4 | PCI, stockage AHCI/SATA, système de fichiers FAT32 (lecture/écriture) | à venir |
-| 5 | Compositeur graphique (double buffering), primitives de dessin | à venir |
-| 6 | Gestionnaire de fenêtres, focus, z-order, barre des tâches | à venir |
-| 7 | Framework de pilotes (enregistrement, classes, énumération) | à venir |
-| 8 | Applications : terminal, explorateur de fichiers, paramètres | à venir |
-| 9 | Comptes utilisateurs, authentification au boot, privilèges | à venir |
-| 10 | *(ambitieux)* ring 3 + appels système | bonus |
-| 11 | *(bonus)* xHCI + USB HID, SMP, NVMe | bonus |
-
-## Dépendances (Debian / Ubuntu)
+## Démarrage rapide
 
 ```bash
-sudo apt-get update
 sudo apt-get install build-essential nasm gcc binutils \
                      qemu-system-x86 ovmf xorriso mtools dosfstools
+make iso        # construit build/monos.iso
+make run        # lance dans QEMU avec firmware UEFI (OVMF)
 ```
 
-| Outil | Rôle |
-|-------|------|
-| `gcc`, `binutils` (`ld`) | compilation du noyau C autonome (ELF64) |
-| `nasm` | code assembleur bas niveau (phases suivantes) |
-| `qemu-system-x86` | test en machine virtuelle |
-| `ovmf` | firmware **UEFI** pour QEMU (`/usr/share/OVMF/OVMF_CODE_4M.fd`) |
-| `xorriso` | fabrication de l'image ISO hybride |
-| `mtools`, `dosfstools` | manipulation FAT (images, phases stockage) |
+Au démarrage : menu Limine (3 s) → écran de connexion. Comptes par défaut :
+**`user` / `user`** (standard) ou **`root` / `root`** (administrateur).
+*Tab* change de champ, *Entrée* valide.
 
-**Limine** est fourni dans [`third_party/limine/`](third_party/limine/) (binaires
-de la branche `v8.x-binary` + l'outil hôte recompilé automatiquement). Aucun
-téléchargement n'est nécessaire pour compiler.
+## Ce qui est réellement implémenté et testé
 
-## Compilation et test en QEMU
+Tout ce qui suit a été **vérifié dans QEMU** (capture du framebuffer + injection
+clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
+
+**Démarrage et noyau**
+- ✅ Boot **UEFI + BIOS legacy** via Limine, image **hybride dd-able sur USB**.
+- ✅ **Long mode 64 bits**, noyau ELF64 en *higher-half*.
+- ✅ **Gestion mémoire** : PMM (allocateur par bitmap depuis la memory map),
+  allocation contiguë (DMA/heap), tas noyau (`kmalloc`/`kfree`/`krealloc` avec
+  fusion des blocs libres). La pagination est celle mise en place par Limine
+  (fenêtre HHDM exploitée par le PMM).
+- ✅ **GDT + TSS**, **IDT** (exceptions + IRQ), **PIC 8259** remappé, **PIT** à
+  1000 Hz, **horloge RTC**, journal **port série** (COM1).
+
+**Pilotes**
+- ✅ **Clavier PS/2** (disposition **AZERTY**, Maj, touches spéciales).
+- ✅ **Souris PS/2** (curseur, déplacement, boutons).
+- ✅ **Bus PCI** : énumération des périphériques (affichée dans Paramètres).
+
+**Interface graphique**
+- ✅ **Compositeur** avec **double buffering** (aucun scintillement).
+- ✅ Primitives : pixels, rectangles, lignes (Bresenham), texte (police bitmap
+  8×16 mise à l'échelle), blit, **curseur souris**.
+- ✅ **Gestionnaire de fenêtres** : fenêtres **déplaçables** (glisser la barre de
+  titre), **redimensionnables** (poignée), **boutons fermer/réduire**, **focus**,
+  **empilement (z-order)**, routage des clics et du clavier vers la bonne fenêtre.
+- ✅ **Barre des tâches** : bouton Menu (lanceur), boutons des fenêtres ouvertes,
+  horloge, nom de l'utilisateur connecté.
+
+**Applications**
+- ✅ **Terminal** : shell avec `help`, `clear`, `echo`, `ls`, `cd`, `pwd`, `cat`,
+  `mkdir`, `touch`, `rm`, `whoami`, `date`, `sysinfo`, `about`, `reboot`.
+- ✅ **Explorateur de fichiers** : naviguer, ouvrir, **créer un dossier**,
+  **renommer**, **supprimer**, **copier/couper/coller**.
+- ✅ **Paramètres** : infos système, modes d'affichage (GOP), date/heure,
+  comptes utilisateurs (avec une action réservée à l'administrateur).
+- ✅ **Éditeur de texte** (ouvert depuis l'explorateur), enregistrement `Ctrl+S`.
+- ✅ Fenêtre **À propos** avec la mascotte.
+
+**Utilisateurs et privilèges**
+- ✅ Comptes **admin (root)** et **standard (user)**, **écran de connexion** au
+  démarrage, **déconnexion**.
+- ✅ **Séparation des privilèges** : un utilisateur standard ne peut écrire que
+  dans son dossier personnel et se voit **refuser** les actions système ; l'admin
+  y est autorisé. Vérifié dans les Paramètres et le terminal.
+
+## La mascotte
+
+`8==D` pivoté de 90° vers la gauche = **vertical**, gland en haut, base en bas :
+
+```
+ D
+ |
+ |
+ 8
+```
+
+Affichée à l'écran de connexion, en filigrane sur le bureau, et dans « À propos ».
+
+## Ce qui n'est PAS implémenté (honnêteté sur le périmètre)
+
+Conformément à la stratégie convenue (« cœur graphique d'abord, reste en bonus »),
+les éléments suivants **ne sont pas faits**. Ils sont signalés sans détour :
+
+- ❌ **Stockage disque réel (AHCI/SATA ou NVMe) et FAT32** : le système de fichiers
+  est **entièrement en RAM** (ramfs). Il est pleinement fonctionnel (créer,
+  supprimer, renommer, déplacer, éditer) **mais non persistant** : rien n'est écrit
+  sur un disque, et il **n'est pas lisible depuis un autre OS**. C'est le principal
+  écart avec l'objectif initial ; l'ajout d'un pilote AHCI + FAT32 est la prochaine
+  étape logique.
+- ❌ **USB (xHCI, HID, mass storage)** : non implémenté. Conséquence importante : sur
+  un **PC moderne sans PS/2 (même émulé)**, le **clavier et la souris ne
+  fonctionneront pas**, même si le framebuffer s'allume.
+- ❌ **APIC / IOAPIC** : on utilise le **PIC 8259 hérité** (suffisant en QEMU).
+- ❌ **Multi-cœurs (SMP)** : non implémenté (mono-cœur).
+- ❌ **Ring 3 / appels système / isolation par processus** : les applications
+  s'exécutent en **ring 0**. La séparation des privilèges est donc **logique**
+  (vérifiée par le noyau), **pas** imposée par le matériel via ring 3.
+- ⚠️ **Sécurité des mots de passe** : hachés par un simple djb2, **sans valeur
+  cryptographique** — démonstration pédagogique uniquement.
+
+## Matériel et environnements testés
+
+- ✅ **QEMU `q35` + OVMF (UEFI)** → interface graphique complète, interactions
+  vérifiées (login, fenêtres, explorateur, paramètres, terminal, privilèges).
+- ✅ **QEMU `q35` + SeaBIOS (BIOS legacy)** → atteint l'interface graphique.
+- ❌ **Vrai matériel** : **non testé** dans l'environnement de développement.
+  L'image est conçue pour (Limine hybride, GOP, ESP standard) ; sur une machine
+  réelle elle devrait atteindre le framebuffer, mais **les entrées dépendent de la
+  présence d'un contrôleur PS/2** (voir la pile USB manquante ci-dessus).
+
+## Compilation et exécution
 
 ```bash
 make            # compile le noyau -> build/kernel.elf
 make iso        # construit l'image hybride -> build/monos.iso
-make run        # lance dans QEMU avec firmware UEFI (OVMF)
-make run-bios   # lance dans QEMU en BIOS legacy (SeaBIOS)
+make run        # QEMU avec firmware UEFI (OVMF)
+make run-bios   # QEMU en BIOS legacy (SeaBIOS)
 make clean      # nettoie build/
 ```
 
-Au démarrage, le menu Limine apparaît (3 s), puis MonOS affiche son écran
-d'accueil dans le framebuffer.
-
 ## Gravure sur clé USB
 
-L'image `build/monos.iso` est **hybride** (isohybrid) : amorçable en UEFI et en
-BIOS, et écrivable telle quelle sur une clé USB — exactement ce que fait Rufus en
-mode « image dd ».
+`build/monos.iso` est **hybride** (isohybrid) : amorçable en UEFI et BIOS, et
+écrivable telle quelle sur une clé USB (comme Rufus en mode « image dd »).
 
 ```bash
 make iso
@@ -100,64 +150,44 @@ make iso
 >
 > - Identifiez la clé avec `lsblk` **avant** de lancer la commande.
 > - Indiquez le **disque entier** (`/dev/sdb`), **pas une partition** (`/dev/sdb1`).
-> - Le script demande une confirmation explicite et refuse les noms de partition.
+> - Le script refuse les noms de partition et exige une confirmation explicite.
 
-Avec Rufus (Windows) : sélectionner `monos.iso` et écrire en **mode image DD**.
+Avec Rufus (Windows) : sélectionner `monos.iso`, écrire en **mode image DD**.
 
-## Matériel supporté et limites connues
+## Dépendances (Debian / Ubuntu)
 
-**Testé réellement (par l'auteur) :**
-- ✅ QEMU `q35` + **OVMF (UEFI)** → framebuffer + noyau 64 bits.
-- ✅ QEMU `q35` + **SeaBIOS (BIOS legacy)** → idem.
-- Affichage : framebuffer linéaire 32 bpp (1280×800 sous OVMF par défaut).
-
-**Pas encore testé / non implémenté à ce stade (Phase 0) :**
-- ❌ Démarrage sur une **vraie machine** : l'image est conçue pour (Limine hybride,
-  GOP, ESP standard), mais **non vérifié sur matériel physique** dans cet
-  environnement. À tester par vos soins.
-- ❌ **Entrées** (clavier/souris), **stockage**, **réseau**, **interface graphique
-  interactive** : objets des phases suivantes.
-
-**Limites structurelles à anticiper (honnêteté) :**
-- Sur beaucoup de **portables modernes sans PS/2 (même émulé)**, le clavier/souris
-  ne fonctionneront qu'une fois la **pile USB (xHCI + HID)** écrite (phase bonus).
-  Sur desktop avec PS/2 ou « legacy USB emulation », le PS/2 suffira.
-- L'affichage repose **uniquement** sur le framebuffer GOP/VBE : pas de pilote GPU
-  natif, pas d'accélération 2D/3D (hors périmètre, comme convenu).
-
-## Structure du projet
-
-```
-.
-├── boot/limine.conf        # configuration du chargeur Limine
-├── kernel/
-│   ├── kmain.c             # point d'entrée + mini-pilote framebuffer (Phase 0)
-│   ├── limine.h            # en-tête du protocole Limine (vendu)
-│   ├── font8x16.h          # police bitmap 8x16 (générée depuis une fonte VGA)
-│   └── link.ld             # script de liaison higher-half (0xffffffff80000000)
-├── third_party/limine/     # chargeur Limine (binaires + outil hôte)
-├── build/
-│   └── flash_usb.sh        # gravure USB avec avertissements
-├── legacy/                 # l'ancien OS 16/32 bits (conservé, voir legacy/README.md)
-├── Makefile
-└── README.md
+```bash
+sudo apt-get install build-essential nasm gcc binutils \
+                     qemu-system-x86 ovmf xorriso mtools dosfstools
 ```
 
-## La mascotte
+**Limine** est fourni dans [`third_party/limine/`](third_party/limine/) (binaires
+v8.x + sources de l'outil hôte, recompilé automatiquement par le Makefile). Aucun
+téléchargement n'est nécessaire pour compiler.
 
-`8==D` pivoté de 90° vers la gauche = **vertical**, gland en haut, base en bas :
+## Architecture du code
 
 ```
- D
- |
- |
- 8
+kernel/
+  kmain.c            point d'entrée et orchestration
+  boot.h / limine.h  interface avec le chargeur Limine
+  klib.* serial.* io.h   bibliothèque de base, série, ports d'E/S
+  gdt.* idt.* isr.asm cpu.asm pic.* pit.* rtc.*   cœur CPU (Phase 1)
+  pmm.* heap.*       mémoire physique + tas noyau (Phase 2)
+  ps2.* input.*      clavier + souris PS/2 et file d'événements (Phase 3)
+  pci.*              énumération PCI
+  gfx.* framebuffer.* font8x16.h   dessin et framebuffer (Phase 5)
+  window.h wm.c      gestionnaire de fenêtres (Phase 6)
+  desktop.*          compositeur, login, barre des tâches, boucle (Phases 6-9)
+  vfs.*              système de fichiers en mémoire
+  users.*            comptes, authentification, privilèges (Phase 9)
+  app_*.c            terminal, explorateur, paramètres, éditeur, à propos
+third_party/limine/  chargeur Limine (boot UEFI + BIOS)
+legacy/              l'ancien OS 16/32 bits (conservé)
+build/flash_usb.sh   gravure USB avec garde-fous
 ```
-
-Affichée à l'écran d'accueil. Elle réapparaîtra dans la commande/fenêtre « À propos »
-une fois le shell et la GUI en place.
 
 ## Licence
 
-Projet pédagogique. Le code de MonOS est fourni tel quel, libre d'utilisation.
-Limine est sous licence BSD-2-Clause (voir `third_party/limine/LICENSE`).
+Projet pédagogique, fourni tel quel. Limine est sous licence BSD-2-Clause
+(voir `third_party/limine/LICENSE`).

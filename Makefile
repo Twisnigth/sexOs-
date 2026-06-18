@@ -16,6 +16,7 @@
 # ---- Outils -----------------------------------------------------------------
 CC       := gcc
 LD       := ld
+ASM      := nasm
 QEMU     := qemu-system-x86_64
 
 LIMINE_DIR := third_party/limine
@@ -36,7 +37,9 @@ OVMF_VARS := $(BUILD)/OVMF_VARS.fd
 
 # ---- Sources ----------------------------------------------------------------
 CSRC := $(wildcard $(KDIR)/*.c)
-OBJ  := $(patsubst $(KDIR)/%.c,$(OBJDIR)/%.o,$(CSRC))
+ASRC := $(wildcard $(KDIR)/*.asm)
+OBJ  := $(patsubst $(KDIR)/%.c,$(OBJDIR)/%.o,$(CSRC)) \
+        $(patsubst $(KDIR)/%.asm,$(OBJDIR)/%_asm.o,$(ASRC))
 
 # ---- Drapeaux de compilation (noyau autonome x86_64) ------------------------
 CFLAGS := -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector \
@@ -53,6 +56,10 @@ all: $(KERNEL)
 $(OBJDIR)/%.o: $(KDIR)/%.c
 	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJDIR)/%_asm.o: $(KDIR)/%.asm
+	@mkdir -p $(OBJDIR)
+	$(ASM) -f elf64 $< -o $@
 
 $(KERNEL): $(OBJ) $(KDIR)/link.ld
 	@mkdir -p $(BUILD)
