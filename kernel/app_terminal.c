@@ -14,6 +14,7 @@
 #include "users.h"
 #include "pmm.h"
 #include "rtc.h"
+#include "net.h"
 #include "io.h"
 
 #define TCOLS 80
@@ -35,8 +36,8 @@ typedef struct {
 
 // Liste des commandes intégrées (triée, sert aussi à la complétion).
 static const char *BUILTINS[] = {
-    "about","cat","cd","clear","date","echo","help","ls",
-    "mkdir","pwd","reboot","rm","sysinfo","touch","whoami"
+    "about","cat","cd","clear","date","echo","help","ifconfig","ls",
+    "mkdir","nslookup","ping","pwd","reboot","rm","sysinfo","touch","wget","whoami"
 };
 #define NBUILTINS (int)(sizeof(BUILTINS)/sizeof(BUILTINS[0]))
 
@@ -322,6 +323,87 @@ static void cmd_rm(term_t *t, const char *arg) {
     if (!n || !vfs_delete(n)) term_print(t, "rm: echec\n");
 }
 
+// --- Commandes réseau --------------------------------------------------------
+static bool parse_ip(const char *s, ip4_t *out) {
+    int p[4], n = 0, v = 0, has = 0;
+    for (;; s++) {
+        if (*s >= '0' && *s <= '9') { v = v * 10 + (*s - '0'); has = 1; }
+        else if (*s == '.' || *s == 0) {
+            if (!has || n >= 4 || v > 255) return false;
+            p[n++] = v; v = 0; has = 0;
+            if (*s == 0) break;
+        } else return false;
+    }
+    if (n != 4) return false;
+    *out = IP4(p[0], p[1], p[2], p[3]);
+    return true;
+}
+
+static void cmd_ifconfig(term_t *t) {
+    if (!netif.up) { term_print(t, "reseau indisponible\n"); return; }
+    char b[16];
+    mac_t m = netif.mac;
+    term_print(t, "eth0  MAC ");
+    char hx[3] = {0,0,0};
+    for (int i = 0; i < 6; i++) { utoa(m.b[i], hx, 16); if (m.b[i] < 16) term_putc(t,'0'); term_print(t, hx); if (i<5) term_putc(t,':'); }
+    term_putc(t, '\n');
+    ip_to_str(netif.ip, b);      term_print(t, "      IP        "); term_print(t, b); term_putc(t,'\n');
+    ip_to_str(netif.mask, b);    term_print(t, "      Masque    "); term_print(t, b); term_putc(t,'\n');
+    ip_to_str(netif.gateway, b); term_print(t, "      Passerelle"); term_print(t, " "); term_print(t, b); term_putc(t,'\n');
+    ip_to_str(netif.dns, b);     term_print(t, "      DNS       "); term_print(t, b); term_putc(t,'\n');
+}
+
+static bool resolve_host(term_t *t, const char *arg, ip4_t *ip) {
+    if (parse_ip(arg, ip)) return true;
+    if (dns_resolve(arg, ip)) return true;
+    term_print(t, "nom introuvable\n");
+    return false;
+}
+
+static void cmd_ping(term_t *t, const char *arg) {
+    if (!netif.up) { term_print(t, "reseau indisponible\n"); return; }
+    ip4_t ip;
+    if (!arg[0] || !resolve_host(t, arg, &ip)) { if(!arg[0]) term_print(t,"usage: ping <hote>\n"); return; }
+    char b[16]; ip_to_str(ip, b);
+    for (int i = 0; i < 4; i++) {
+        uint32_t rtt;
+        if (net_ping(ip, &rtt)) {
+            char n[16]; term_print(t, "reponse de "); term_print(t, b);
+            term_print(t, " : "); utoa(rtt, n, 10); term_print(t, n); term_print(t, " ms\n");
+        } else { term_print(t, "delai depasse\n"); }
+    }
+}
+
+static void cmd_nslookup(term_t *t, const char *arg) {
+    if (!netif.up) { term_print(t, "reseau indisponible\n"); return; }
+    if (!arg[0]) { term_print(t, "usage: nslookup <nom>\n"); return; }
+    ip4_t ip;
+    if (dns_resolve(arg, &ip)) { char b[16]; ip_to_str(ip, b); term_print(t, arg); term_print(t, " -> "); term_print(t, b); term_putc(t,'\n'); }
+    else term_print(t, "echec de la resolution\n");
+}
+
+static void cmd_wget(term_t *t, char *arg) {
+    if (!netif.up) { term_print(t, "reseau indisponible\n"); return; }
+    if (!arg[0]) { term_print(t, "usage: wget <hote> [/chemin]\n"); return; }
+    char *path = arg;
+    while (*path && *path != ' ' && *path != '/') path++;
+    char host[128]; int hl = path - arg;
+    memcpy(host, arg, hl); host[hl] = 0;
+    if (*path == ' ') path++;
+    const char *p = (*path == '/') ? path : "/";
+    char *buf = (char *)kmalloc(16384);
+    if (!buf) return;
+    term_print(t, "telechargement...\n");
+    int n = http_get(host, p, buf, 16384);
+    if (n > 0) {
+        char num[16]; utoa(n, num, 10);
+        term_print(t, "recu "); term_print(t, num); term_print(t, " octets\n");
+        for (int i = 0; i < n && i < 400; i++) term_putc(t, buf[i]);   // aperçu
+        term_putc(t, '\n');
+    } else term_print(t, "echec\n");
+    kfree(buf);
+}
+
 static void term_run(term_t *t, char *line) {
     while (*line == ' ') line++;
     char *arg = line;
@@ -343,6 +425,10 @@ static void term_run(term_t *t, char *line) {
     else if (strcmp(cmd, "whoami") == 0) { const user_t *u=users_current(); term_print(t, u?u->name:"?"); term_print(t, users_is_admin()?" (admin)\n":" (standard)\n"); }
     else if (strcmp(cmd, "date") == 0) { rtc_time_t tm; rtc_now(&tm); char b[24]; rtc_format(&tm,b); term_print(t,b); term_putc(t,'\n'); }
     else if (strcmp(cmd, "sysinfo") == 0) cmd_sysinfo(t);
+    else if (strcmp(cmd, "ifconfig") == 0) cmd_ifconfig(t);
+    else if (strcmp(cmd, "ping") == 0) cmd_ping(t, arg);
+    else if (strcmp(cmd, "nslookup") == 0) cmd_nslookup(t, arg);
+    else if (strcmp(cmd, "wget") == 0) cmd_wget(t, arg);
     else if (strcmp(cmd, "about") == 0) cmd_about(t);
     else if (strcmp(cmd, "reboot") == 0) { term_print(t, "redemarrage...\n"); outb(0x64, 0xFE); }
     else { term_print(t, cmd); term_print(t, ": commande inconnue\n"); }

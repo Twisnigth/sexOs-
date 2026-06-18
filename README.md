@@ -61,9 +61,19 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
 - ✅ **Barre des tâches** : bouton Menu (lanceur), boutons des fenêtres ouvertes,
   horloge, nom de l'utilisateur connecté.
 
+**Réseau** (Phase 2)
+- ✅ Pilote **e1000** (Intel Gigabit, MMIO + DMA, énumération PCI).
+- ✅ Pile maison : **Ethernet, ARP, IPv4, ICMP, UDP, TCP** (handshake, ACK,
+  retransmission, FIN).
+- ✅ **DHCP** (IP/masque/passerelle/DNS automatiques), **résolveur DNS**, **HTTP GET**.
+- ✅ Commandes : `ifconfig`, `ping`, `nslookup`, `wget`.
+- Testé en QEMU user-mode : DHCP (10.0.2.15), `ping 10.0.2.2`, DNS et HTTP réels.
+
 **Applications**
 - ✅ **Terminal** : shell avec `help`, `clear`, `echo`, `ls`, `cd`, `pwd`, `cat`,
-  `mkdir`, `touch`, `rm`, `whoami`, `date`, `sysinfo`, `about`, `reboot`.
+  `mkdir`, `touch`, `rm`, `whoami`, `date`, `sysinfo`, `ifconfig`, `ping`,
+  `nslookup`, `wget`, `about`, `reboot`. **Auto-complétion Tab** (commandes +
+  chemins) et **édition de ligne** complète (curseur, insertion/suppression).
 - ✅ **Explorateur de fichiers** : naviguer, ouvrir, **créer un dossier**,
   **renommer**, **supprimer**, **copier/couper/coller**.
 - ✅ **Paramètres** : infos système, modes d'affichage (GOP), date/heure,
@@ -130,6 +140,7 @@ make            # compile le noyau -> build/kernel.elf
 make iso        # construit l'image hybride -> build/monos.iso
 make run        # QEMU avec firmware UEFI (OVMF)
 make run-bios   # QEMU en BIOS legacy (SeaBIOS)
+make run-net    # QEMU UEFI + réseau e1000 (DHCP/DNS) + hostfwd 2222->22 (SSH)
 make clean      # nettoie build/
 ```
 

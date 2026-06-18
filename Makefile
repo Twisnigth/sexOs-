@@ -107,9 +107,18 @@ run: $(ISO) $(OVMF_VARS)
 run-bios: $(ISO)
 	$(QEMU) -M q35 -m 512M -cdrom $(ISO) -serial stdio
 
+# Avec réseau (user-mode) : carte e1000 + redirection du port 22 (SSH) vers 2222.
+run-net: $(ISO) $(OVMF_VARS)
+	$(QEMU) -M q35 -m 512M \
+	    -drive if=pflash,unit=0,format=raw,readonly=on,file=$(OVMF_CODE) \
+	    -drive if=pflash,unit=1,format=raw,file=$(OVMF_VARS) \
+	    -netdev user,id=n0,hostfwd=tcp::2222-:22 \
+	    -device e1000,netdev=n0 \
+	    -cdrom $(ISO) -serial stdio
+
 # ---- Nettoyage --------------------------------------------------------------
 clean:
 	rm -rf $(BUILD)
 	@echo "Nettoyage termine."
 
-.PHONY: all iso run run-bios clean
+.PHONY: all iso run run-bios run-net clean

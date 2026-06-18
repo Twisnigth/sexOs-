@@ -27,6 +27,7 @@
 #include "pci.h"
 #include "vfs.h"
 #include "users.h"
+#include "net.h"
 #include "desktop.h"
 
 // -----------------------------------------------------------------------------
@@ -141,6 +142,10 @@ void kmain(void) {
 
     sti();                   // on active les interruptions
     kprintf("[cpu] interruptions activees\n");
+
+    // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
+    net_init();
+    if (nic_present()) net_dhcp();
 
     // --- Système de fichiers + comptes utilisateurs --------------------------
     vfs_init();
