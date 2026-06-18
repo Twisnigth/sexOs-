@@ -62,12 +62,27 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
   horloge, nom de l'utilisateur connecté.
 
 **Réseau** (Phase 2)
-- ✅ Pilote **e1000** (Intel Gigabit, MMIO + DMA, énumération PCI).
+- ✅ Pilote **e1000** (Intel Gigabit, MMIO + DMA, énumération PCI), ouverture
+  passive TCP (serveur).
 - ✅ Pile maison : **Ethernet, ARP, IPv4, ICMP, UDP, TCP** (handshake, ACK,
-  retransmission, FIN).
+  retransmission, FIN, listen/accept).
 - ✅ **DHCP** (IP/masque/passerelle/DNS automatiques), **résolveur DNS**, **HTTP GET**.
 - ✅ Commandes : `ifconfig`, `ping`, `nslookup`, `wget`.
 - Testé en QEMU user-mode : DHCP (10.0.2.15), `ping 10.0.2.2`, DNS et HTTP réels.
+
+**Cryptographie** (Phase 3)
+- ✅ **Monocypher** (domaine public) : X25519, Ed25519, ChaCha20, Poly1305,
+  SHA-512 ; **SHA-256** maison ; **CSPRNG** (RDRAND + ChaCha20).
+- ✅ Validé par vecteurs de test au démarrage (SHA-256/512 FIPS, X25519, Ed25519,
+  ChaCha20-Poly1305) : 0 échec.
+
+**SSH** (Phase 3) — interopérable avec **OpenSSH 9.6**
+- ✅ **Client** (`ssh hôte[:port] user motdepasse commande`) : KEX
+  curve25519-sha256, clé d'hôte ssh-ed25519 vérifiée, chiffre
+  `chacha20-poly1305@openssh.com`, auth mot de passe, exécution distante.
+- ✅ **Serveur** (port 22) : clé d'hôte ed25519, auth contre les comptes MonOS
+  (user/root), canal **exec** et **shell interactif** (pty).
+- Testé dans les deux sens contre un `sshd`/`ssh` OpenSSH réel via QEMU SLIRP.
 
 **Applications**
 - ✅ **Terminal** : shell avec `help`, `clear`, `echo`, `ls`, `cd`, `pwd`, `cat`,
@@ -116,6 +131,10 @@ les éléments suivants **ne sont pas faits**. Ils sont signalés sans détour :
   un **PC moderne sans PS/2 (même émulé)**, le **clavier et la souris ne
   fonctionneront pas**, même si le framebuffer s'allume.
 - ❌ **APIC / IOAPIC** : on utilise le **PIC 8259 hérité** (suffisant en QEMU).
+- ⚠️ **Réseau** : pas de fragmentation IP, pas d'IPv6 ; TCP « simple mais
+  correct » (pas de réassemblage hors-ordre).
+- ⚠️ **SSH** : un seul algorithme par catégorie (curve25519-sha256 /
+  ssh-ed25519 / chacha20-poly1305) ; auth par mot de passe (pas encore par clé).
 - ❌ **Multi-cœurs (SMP)** : non implémenté (mono-cœur).
 - ❌ **Ring 3 / appels système / isolation par processus** : les applications
   s'exécutent en **ring 0**. La séparation des privilèges est donc **logique**
@@ -142,6 +161,19 @@ make run        # QEMU avec firmware UEFI (OVMF)
 make run-bios   # QEMU en BIOS legacy (SeaBIOS)
 make run-net    # QEMU UEFI + réseau e1000 (DHCP/DNS) + hostfwd 2222->22 (SSH)
 make clean      # nettoie build/
+```
+
+### Tester le réseau et SSH
+
+Dans le terminal MonOS (après `make run-net`) :
+```
+ifconfig                         # config obtenue par DHCP
+ping 10.0.2.2                    # passerelle SLIRP
+ssh 10.0.2.2:22 user motdepasse "uname -a"   # client SSH vers un sshd hôte
+```
+Depuis l'hôte, vers le **serveur SSH** de MonOS (port 22 redirigé sur 2222) :
+```bash
+ssh -p 2222 user@localhost       # mot de passe : user (ou root / root)
 ```
 
 ## Gravure sur clé USB
