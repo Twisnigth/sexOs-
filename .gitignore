@@ -1,0 +1,11 @@
+# Fichiers générés par la compilation
+boot.bin
+kernel.o
+kernel.elf
+kernel.bin
+os.img
+os.iso
+iso_root/
+
+# Vidages de test
+vga*
