@@ -15,6 +15,7 @@
 #include "pmm.h"
 #include "rtc.h"
 #include "net.h"
+#include "ssh.h"
 #include "io.h"
 
 #define TCOLS 80
@@ -37,7 +38,7 @@ typedef struct {
 // Liste des commandes intégrées (triée, sert aussi à la complétion).
 static const char *BUILTINS[] = {
     "about","cat","cd","clear","date","echo","help","ifconfig","ls",
-    "mkdir","nslookup","ping","pwd","reboot","rm","sysinfo","touch","wget","whoami"
+    "mkdir","nslookup","ping","pwd","reboot","rm","ssh","sysinfo","touch","wget","whoami"
 };
 #define NBUILTINS (int)(sizeof(BUILTINS)/sizeof(BUILTINS[0]))
 
@@ -404,6 +405,30 @@ static void cmd_wget(term_t *t, char *arg) {
     kfree(buf);
 }
 
+static void cmd_ssh(term_t *t, char *arg) {
+    if (!netif.up) { term_print(t, "reseau indisponible\n"); return; }
+    // Syntaxe : ssh hote[:port] utilisateur motdepasse commande...
+    char *host = arg, *user, *pass, *command;
+    char *sp = strchr(host, ' ');  if (!sp) goto usage;  *sp = 0; user = sp + 1; while (*user==' ') user++;
+    sp = strchr(user, ' ');        if (!sp) goto usage;  *sp = 0; pass = sp + 1; while (*pass==' ') pass++;
+    sp = strchr(pass, ' ');        if (!sp) goto usage;  *sp = 0; command = sp + 1; while (*command==' ') command++;
+    uint16_t port = 22;
+    char *colon = strchr(host, ':');
+    if (colon) { *colon = 0; port = 0; for (char *q = colon + 1; *q >= '0' && *q <= '9'; q++) port = port*10 + (*q - '0'); }
+    ip4_t ip;
+    if (!resolve_host(t, host, &ip)) return;
+    char *buf = (char *)kmalloc(8192);
+    if (!buf) return;
+    term_print(t, "connexion SSH...\n");
+    int n = ssh_client_exec(ip, port, user, pass, command, buf, 8192);
+    if (n > 0) term_print(t, buf);
+    else term_print(t, "ssh: echec (connexion/auth)\n");
+    kfree(buf);
+    return;
+usage:
+    term_print(t, "usage: ssh hote[:port] utilisateur motdepasse commande\n");
+}
+
 static void term_run(term_t *t, char *line) {
     while (*line == ' ') line++;
     char *arg = line;
@@ -429,6 +454,7 @@ static void term_run(term_t *t, char *line) {
     else if (strcmp(cmd, "ping") == 0) cmd_ping(t, arg);
     else if (strcmp(cmd, "nslookup") == 0) cmd_nslookup(t, arg);
     else if (strcmp(cmd, "wget") == 0) cmd_wget(t, arg);
+    else if (strcmp(cmd, "ssh") == 0) cmd_ssh(t, arg);
     else if (strcmp(cmd, "about") == 0) cmd_about(t);
     else if (strcmp(cmd, "reboot") == 0) { term_print(t, "redemarrage...\n"); outb(0x64, 0xFE); }
     else { term_print(t, cmd); term_print(t, ": commande inconnue\n"); }

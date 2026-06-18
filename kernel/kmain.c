@@ -29,6 +29,7 @@
 #include "users.h"
 #include "net.h"
 #include "crypto.h"
+#include "ssh.h"
 #include "desktop.h"
 
 // -----------------------------------------------------------------------------
