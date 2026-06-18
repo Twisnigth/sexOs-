@@ -1,87 +1,108 @@
 # =============================================================================
-#  Makefile  --  Construction de MonOS
+#  Makefile -- Construction de MonOS v2 (noyau 64 bits + image Limine)
 # -----------------------------------------------------------------------------
-#  Cibles principales :
-#    make            : construit l'image disque os.img
-#    make run        : construit puis lance MonOS dans QEMU (disquette)
-#    make run-hdd    : lance MonOS dans QEMU en tant que disque dur
-#    make iso        : génère l'image ISO bootable (via make_iso.sh)
-#    make run-iso    : construit l'ISO et la lance dans QEMU (-cdrom)
+#  Cibles :
+#    make            : compile le noyau (build/kernel.elf)
+#    make iso        : construit l'image hybride bootable build/monos.iso
+#    make run        : lance l'ISO dans QEMU avec firmware UEFI (OVMF)
+#    make run-bios   : lance l'ISO dans QEMU en BIOS legacy (SeaBIOS)
 #    make clean      : supprime les fichiers générés
+#
+#  Le noyau est compilé en C autonome (freestanding) avec le gcc de l'hôte,
+#  ce qui évite un cross-compilateur. Limine (dans third_party/) fournit le
+#  démarrage UEFI+BIOS, le long mode, la pagination initiale et le framebuffer.
 # =============================================================================
 
 # ---- Outils -----------------------------------------------------------------
-ASM      := nasm
+CC       := gcc
 LD       := ld
-OBJCOPY  := objcopy
-QEMU     := qemu-system-i386
+QEMU     := qemu-system-x86_64
 
-# ---- Fichiers ---------------------------------------------------------------
-BOOT_BIN   := boot.bin
-KERNEL_O   := kernel.o
-KERNEL_ELF := kernel.elf
-KERNEL_BIN := kernel.bin
-OS_IMG     := os.img
-OS_ISO     := os.iso
+LIMINE_DIR := third_party/limine
+LIMINE     := $(LIMINE_DIR)/limine
 
-# Doit correspondre à KERNEL_SECTORS dans boot.asm (64 secteurs = 32 Kio).
-KERNEL_SECTORS := 64
-KERNEL_SIZE    := $(shell echo $$(( $(KERNEL_SECTORS) * 512 )))
-# Taille d'une disquette 1.44 Mio (géométrie 18 secteurs / 2 têtes / 80 cyl.).
-FLOPPY_SIZE    := 1474560
+# ---- Répertoires et fichiers ------------------------------------------------
+KDIR    := kernel
+BUILD   := build
+OBJDIR  := $(BUILD)/obj
+ISODIR  := $(BUILD)/iso
+KERNEL  := $(BUILD)/kernel.elf
+ISO     := $(BUILD)/monos.iso
+
+# Firmware UEFI pour QEMU.
+OVMF_CODE := /usr/share/OVMF/OVMF_CODE_4M.fd
+OVMF_VARS_SRC := /usr/share/OVMF/OVMF_VARS_4M.fd
+OVMF_VARS := $(BUILD)/OVMF_VARS.fd
+
+# ---- Sources ----------------------------------------------------------------
+CSRC := $(wildcard $(KDIR)/*.c)
+OBJ  := $(patsubst $(KDIR)/%.c,$(OBJDIR)/%.o,$(CSRC))
+
+# ---- Drapeaux de compilation (noyau autonome x86_64) ------------------------
+CFLAGS := -Wall -Wextra -std=c11 -ffreestanding -fno-stack-protector \
+          -fno-stack-clash-protection -fno-pic -fno-pie -m64 -march=x86-64 \
+          -mno-80387 -mno-mmx -mno-sse -mno-sse2 -mno-red-zone \
+          -mcmodel=kernel -O2 -g -I$(KDIR)
+
+LDFLAGS := -m elf_x86_64 -nostdlib -static -z max-page-size=0x1000 \
+           --build-id=none -T $(KDIR)/link.ld
 
 # ---- Cible par défaut -------------------------------------------------------
-all: $(OS_IMG)
+all: $(KERNEL)
 
-# ---- Bootloader (binaire plat de 512 octets) --------------------------------
-$(BOOT_BIN): boot.asm
-	$(ASM) -f bin $< -o $@
+$(OBJDIR)/%.o: $(KDIR)/%.c
+	@mkdir -p $(OBJDIR)
+	$(CC) $(CFLAGS) -c $< -o $@
 
-# ---- Noyau : ELF -> binaire plat lié à 0x10000 ------------------------------
-$(KERNEL_O): kernel.asm
-	$(ASM) -f elf32 $< -o $@
+$(KERNEL): $(OBJ) $(KDIR)/link.ld
+	@mkdir -p $(BUILD)
+	$(LD) $(LDFLAGS) -o $@ $(OBJ)
+	@echo "Noyau construit : $@"
 
-$(KERNEL_ELF): $(KERNEL_O) linker.ld
-	$(LD) -m elf_i386 -T linker.ld -o $@ $(KERNEL_O)
+# ---- Outil hôte Limine (compilé depuis les sources vendues si besoin) -------
+$(LIMINE):
+	$(MAKE) -C $(LIMINE_DIR)
 
-$(KERNEL_BIN): $(KERNEL_ELF)
-	$(OBJCOPY) -O binary $< $@
-	@# Vérifie que le noyau tient dans le nombre de secteurs chargés par le boot.
-	@size=$$(stat -c%s $@); \
-	if [ $$size -gt $(KERNEL_SIZE) ]; then \
-		echo "ERREUR: le noyau ($$size o) depasse $(KERNEL_SIZE) o."; \
-		echo "        Augmentez KERNEL_SECTORS dans boot.asm et le Makefile."; \
-		exit 1; \
-	fi
-	@# Complète le noyau jusqu'à KERNEL_SECTORS secteurs pleins.
-	@truncate -s $(KERNEL_SIZE) $@
+# ---- Image ISO hybride (UEFI + BIOS, dd-able sur USB) -----------------------
+iso: $(ISO)
 
-# ---- Image disque : bootloader + noyau, complétée à 1.44 Mio ----------------
-$(OS_IMG): $(BOOT_BIN) $(KERNEL_BIN)
-	cat $(BOOT_BIN) $(KERNEL_BIN) > $@
-	truncate -s $(FLOPPY_SIZE) $@
-	@echo "Image disque construite : $@"
-
-# ---- Image ISO bootable -----------------------------------------------------
-iso: $(OS_IMG)
-	./make_iso.sh
-
-$(OS_ISO): $(OS_IMG)
-	./make_iso.sh
+$(ISO): $(KERNEL) boot/limine.conf $(LIMINE)
+	rm -rf $(ISODIR)
+	mkdir -p $(ISODIR)/boot/limine $(ISODIR)/EFI/BOOT
+	cp $(KERNEL) $(ISODIR)/boot/kernel.elf
+	cp boot/limine.conf $(ISODIR)/boot/limine/
+	cp $(LIMINE_DIR)/limine-bios.sys $(ISODIR)/boot/limine/
+	cp $(LIMINE_DIR)/limine-bios-cd.bin $(ISODIR)/boot/limine/
+	cp $(LIMINE_DIR)/limine-uefi-cd.bin $(ISODIR)/boot/limine/
+	cp $(LIMINE_DIR)/BOOTX64.EFI  $(ISODIR)/EFI/BOOT/
+	cp $(LIMINE_DIR)/BOOTIA32.EFI $(ISODIR)/EFI/BOOT/
+	xorriso -as mkisofs -R -r -J \
+	    -b boot/limine/limine-bios-cd.bin \
+	    -no-emul-boot -boot-load-size 4 -boot-info-table -hfsplus \
+	    -apm-block-size 2048 \
+	    --efi-boot boot/limine/limine-uefi-cd.bin \
+	    -efi-boot-part --efi-boot-image --protective-msdos-label \
+	    $(ISODIR) -o $(ISO)
+	$(LIMINE) bios-install $(ISO)
+	@echo "Image construite : $(ISO)"
 
 # ---- Exécution dans QEMU ----------------------------------------------------
-run: $(OS_IMG)
-	$(QEMU) -fda $(OS_IMG)
+$(OVMF_VARS):
+	@mkdir -p $(BUILD)
+	cp $(OVMF_VARS_SRC) $(OVMF_VARS)
 
-run-hdd: $(OS_IMG)
-	$(QEMU) -drive format=raw,file=$(OS_IMG)
+run: $(ISO) $(OVMF_VARS)
+	$(QEMU) -M q35 -m 512M \
+	    -drive if=pflash,unit=0,format=raw,readonly=on,file=$(OVMF_CODE) \
+	    -drive if=pflash,unit=1,format=raw,file=$(OVMF_VARS) \
+	    -cdrom $(ISO) -serial stdio
 
-run-iso: $(OS_ISO)
-	$(QEMU) -cdrom $(OS_ISO)
+run-bios: $(ISO)
+	$(QEMU) -M q35 -m 512M -cdrom $(ISO) -serial stdio
 
 # ---- Nettoyage --------------------------------------------------------------
 clean:
-	rm -f $(BOOT_BIN) $(KERNEL_O) $(KERNEL_ELF) $(KERNEL_BIN) $(OS_IMG) $(OS_ISO)
+	rm -rf $(BUILD)
 	@echo "Nettoyage termine."
 
-.PHONY: all iso run run-hdd run-iso clean
+.PHONY: all iso run run-bios clean

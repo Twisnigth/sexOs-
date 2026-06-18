@@ -1,11 +1,28 @@
-# Fichiers générés par la compilation
-boot.bin
-kernel.o
-kernel.elf
-kernel.bin
-os.img
-os.iso
-iso_root/
+# --- Artefacts de build MonOS v2 ---
+/build/
+*.iso
+*.img
+*.elf
+*.o
 
-# Vidages de test
-vga*
+# --- Captures d'écran de test ---
+*.ppm
+*.png
+shot_*
+
+# --- Outil hôte Limine compilé (reconstruit depuis third_party/limine/limine.c) ---
+third_party/limine/limine
+
+# --- Artefacts de l'ancien OS 32 bits (legacy/) ---
+legacy/boot.bin
+legacy/kernel.o
+legacy/kernel.elf
+legacy/kernel.bin
+legacy/os.img
+legacy/os.iso
+legacy/iso_root/
+legacy/vga*
+
+# Garder les captures de documentation
+!docs/
+!docs/*.png
