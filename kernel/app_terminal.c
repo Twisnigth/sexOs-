@@ -1,6 +1,9 @@
 // =============================================================================
-//  kernel/app_terminal.c -- Terminal graphique (shell réutilisant l'esprit
-//  de l'OS legacy, avec commandes liées au système de fichiers).
+//  kernel/app_terminal.c -- Terminal graphique + shell
+// -----------------------------------------------------------------------------
+//  Éditeur de ligne complet (curseur déplaçable, insertion/suppression au
+//  milieu) et auto-complétion par Tab (commandes intégrées + chemins du système
+//  de fichiers), à la manière de bash.
 // =============================================================================
 #include "apps.h"
 #include "window.h"
@@ -15,18 +18,29 @@
 
 #define TCOLS 80
 #define TROWS 25
+#define INPUT_MAX 256
 
 typedef struct {
     char  cells[TROWS][TCOLS];
     int   cx, cy;
-    char  input[256];
-    int   input_len;
+    // --- éditeur de ligne ---
+    char  input[INPUT_MAX];
+    int   input_len;       // longueur de la saisie
+    int   input_pos;       // position du curseur dans la saisie
+    int   prompt_row;      // ligne où commence la saisie
+    int   prompt_col;      // colonne où commence la saisie
+    int   prev_len;        // longueur précédemment affichée (pour effacer)
     vfs_node_t *cwd;
 } term_t;
 
-static term_t *T;   // terminal courant (un seul à la fois lors de l'exécution d'une commande)
+// Liste des commandes intégrées (triée, sert aussi à la complétion).
+static const char *BUILTINS[] = {
+    "about","cat","cd","clear","date","echo","help","ls",
+    "mkdir","pwd","reboot","rm","sysinfo","touch","whoami"
+};
+#define NBUILTINS (int)(sizeof(BUILTINS)/sizeof(BUILTINS[0]))
 
-// --- Sortie texte ------------------------------------------------------------
+// --- Sortie texte (utilisée pour l'affichage des commandes) ------------------
 static void term_scroll(term_t *t) {
     for (int y = 1; y < TROWS; y++)
         memcpy(t->cells[y - 1], t->cells[y], TCOLS);
@@ -45,7 +59,38 @@ static void term_putc(term_t *t, char c) {
 }
 static void term_print(term_t *t, const char *s) { for (; *s; s++) term_putc(t, *s); }
 
+// =============================================================================
+//  Éditeur de ligne
+// =============================================================================
+
+// Écrit un caractère à une position linéaire (row*TCOLS+col), avec garde.
+static void put_lin(term_t *t, int lin, char ch) {
+    if (lin < 0 || lin >= TROWS * TCOLS) return;
+    t->cells[lin / TCOLS][lin % TCOLS] = ch;
+}
+
+// Redessine la saisie depuis l'invite et replace le curseur.
+static void redraw_input(term_t *t) {
+    int start = t->prompt_row * TCOLS + t->prompt_col;
+    int n = (t->prev_len > t->input_len) ? t->prev_len : t->input_len;
+    for (int i = 0; i < n; i++)
+        put_lin(t, start + i, (i < t->input_len) ? t->input[i] : ' ');
+    t->prev_len = t->input_len;
+    int cur = start + t->input_pos;
+    t->cx = cur % TCOLS;
+    t->cy = cur / TCOLS;
+    if (t->cy >= TROWS) { t->cy = TROWS - 1; t->cx = TCOLS - 1; }
+}
+
+// Démarre une nouvelle saisie après l'affichage de l'invite.
+static void begin_input(term_t *t) {
+    t->prompt_row = t->cy;
+    t->prompt_col = t->cx;
+    t->prev_len = 0;
+}
+
 static void term_prompt(term_t *t) {
+    if (t->cy >= TROWS - 1) term_scroll(t);   // garde une ligne pour la saisie
     char path[256];
     vfs_path(t->cwd, path, sizeof(path));
     const user_t *u = users_current();
@@ -53,9 +98,146 @@ static void term_prompt(term_t *t) {
     term_print(t, ":");
     term_print(t, path);
     term_print(t, "$ ");
+    begin_input(t);
+    redraw_input(t);
 }
 
-// --- Commandes ---------------------------------------------------------------
+static void input_insert(term_t *t, char c) {
+    if (t->input_len >= INPUT_MAX - 1) return;
+    for (int i = t->input_len; i > t->input_pos; i--) t->input[i] = t->input[i - 1];
+    t->input[t->input_pos] = c;
+    t->input_len++;
+    t->input_pos++;
+}
+static void input_insert_str(term_t *t, const char *s) {
+    for (; *s; s++) input_insert(t, *s);
+}
+static void input_backspace(term_t *t) {
+    if (t->input_pos == 0) return;
+    for (int i = t->input_pos - 1; i < t->input_len - 1; i++) t->input[i] = t->input[i + 1];
+    t->input_len--;
+    t->input_pos--;
+}
+static void input_delete(term_t *t) {
+    if (t->input_pos >= t->input_len) return;
+    for (int i = t->input_pos; i < t->input_len - 1; i++) t->input[i] = t->input[i + 1];
+    t->input_len--;
+}
+
+// =============================================================================
+//  Auto-complétion
+// =============================================================================
+
+// Résout le nœud dossier désigné par un préfixe (relatif à cwd ou absolu).
+static vfs_node_t *resolve_dir_prefix(term_t *t, const char *dirpart) {
+    vfs_node_t *node = (dirpart[0] == '/') ? vfs_root() : t->cwd;
+    char comp[VFS_NAME_MAX];
+    int i = 0;
+    while (dirpart[i]) {
+        int j = 0;
+        while (dirpart[i] && dirpart[i] != '/' && j < VFS_NAME_MAX - 1) comp[j++] = dirpart[i++];
+        comp[j] = 0;
+        while (dirpart[i] == '/') i++;
+        if (j == 0) continue;
+        if (strcmp(comp, ".") == 0) continue;
+        if (strcmp(comp, "..") == 0) { if (node->parent) node = node->parent; continue; }
+        node = vfs_lookup(node, comp);
+        if (!node || node->type != VFS_DIR) return NULL;
+    }
+    return node;
+}
+
+// Plus long préfixe commun d'un ensemble de chaînes.
+static void common_prefix(char out[64][VFS_NAME_MAX], int n, char *res) {
+    if (n == 0) { res[0] = 0; return; }
+    strncpy(res, out[0], VFS_NAME_MAX - 1);
+    res[VFS_NAME_MAX - 1] = 0;
+    for (int i = 1; i < n; i++) {
+        int k = 0;
+        while (res[k] && out[i][k] && res[k] == out[i][k]) k++;
+        res[k] = 0;
+    }
+}
+
+static void term_complete(term_t *t) {
+    // Token courant (sous le curseur).
+    int s = t->input_pos;
+    while (s > 0 && t->input[s - 1] != ' ') s--;
+    int i = 0; while (i < s && t->input[i] == ' ') i++;
+    bool first = (i == s);
+    int tlen = t->input_pos - s;
+    char token[INPUT_MAX];
+    memcpy(token, t->input + s, tlen); token[tlen] = 0;
+
+    // Base à compléter + dossier de recherche (pour les chemins).
+    const char *base;
+    vfs_node_t *dir = NULL;
+    char dirpart[INPUT_MAX];
+    if (first) {
+        base = token;
+    } else {
+        int sl = -1;
+        for (int k = 0; k < tlen; k++) if (token[k] == '/') sl = k;
+        if (sl < 0) { dirpart[0] = 0; base = token; }
+        else { memcpy(dirpart, token, sl + 1); dirpart[sl + 1] = 0; base = token + sl + 1; }
+        dir = resolve_dir_prefix(t, dirpart);
+        if (!dir) return;
+    }
+    int blen = strlen(base);
+
+    // Collecte des candidats.
+    char names[64][VFS_NAME_MAX];
+    bool is_dir[64];
+    int ncand = 0;
+    if (first) {
+        for (int k = 0; k < NBUILTINS && ncand < 64; k++)
+            if (strncmp(BUILTINS[k], base, blen) == 0) {
+                strncpy(names[ncand], BUILTINS[k], VFS_NAME_MAX - 1);
+                is_dir[ncand] = false; ncand++;
+            }
+    } else {
+        for (vfs_node_t *c = dir->children; c && ncand < 64; c = c->next)
+            if (strncmp(c->name, base, blen) == 0) {
+                strncpy(names[ncand], c->name, VFS_NAME_MAX - 1);
+                is_dir[ncand] = (c->type == VFS_DIR); ncand++;
+            }
+    }
+
+    if (ncand == 0) return;                       // rien : aucun bip visuel
+
+    if (ncand == 1) {
+        input_insert_str(t, names[0] + blen);     // complète le reste
+        input_insert(t, first ? ' ' : (is_dir[0] ? '/' : ' '));
+        redraw_input(t);
+        return;
+    }
+
+    // Plusieurs candidats : étend au plus long préfixe commun.
+    char lcp[VFS_NAME_MAX];
+    common_prefix(names, ncand, lcp);
+    if ((int)strlen(lcp) > blen) input_insert_str(t, lcp + blen);
+
+    // Affiche la liste des possibilités sous l'invite, puis redessine.
+    int saved_len = t->input_len, saved_pos = t->input_pos;
+    t->input_pos = t->input_len;
+    redraw_input(t);                              // place le curseur en fin de ligne
+    term_newline(t);
+    for (int k = 0; k < ncand; k++) {
+        term_print(t, names[k]);
+        if (is_dir[k]) term_putc(t, '/');
+        term_putc(t, ' ');
+    }
+    term_newline(t);
+    term_prompt(t);                               // nouvelle invite
+    // Restaure la saisie en cours sous la nouvelle invite (input inchangé).
+    t->input_len = saved_len;
+    t->input_pos = saved_pos;
+    redraw_input(t);
+}
+
+// =============================================================================
+//  Commandes
+// =============================================================================
 static void cmd_help(term_t *t) {
     term_print(t,
         "Commandes :\n"
@@ -73,13 +255,13 @@ static void cmd_help(term_t *t) {
         " date            date et heure\n"
         " sysinfo         infos systeme\n"
         " about           a propos + mascotte\n"
-        " reboot          redemarre\n");
+        " reboot          redemarre\n"
+        "(Tab : auto-completion des commandes et des chemins)\n");
 }
 static void cmd_about(term_t *t) {
     term_print(t,
         "\n  MonOS version 2.0\n"
-        "  Systeme x86_64, demarrage UEFI/BIOS via Limine.\n"
-        "  Interface graphique, multi-fenetres, comptes utilisateurs.\n\n"
+        "  Systeme x86_64, demarrage UEFI/BIOS via Limine.\n\n"
         "  Mascotte :\n    D\n    |\n    |\n    8\n\n");
 }
 static void cmd_sysinfo(term_t *t) {
@@ -94,7 +276,6 @@ static void cmd_sysinfo(term_t *t) {
     term_print(t, users_is_admin() ? " (admin)\n" : " (standard)\n");
 }
 
-// Renvoie le nœud désigné par 'arg' relatif à cwd ('arg' peut être absolu).
 static vfs_node_t *resolve_arg(term_t *t, const char *arg) {
     if (!arg || !arg[0]) return t->cwd;
     if (arg[0] == '/') return vfs_resolve(arg);
@@ -142,7 +323,6 @@ static void cmd_rm(term_t *t, const char *arg) {
 }
 
 static void term_run(term_t *t, char *line) {
-    // Découpe en commande + argument (reste de la ligne).
     while (*line == ' ') line++;
     char *arg = line;
     while (*arg && *arg != ' ') arg++;
@@ -168,7 +348,9 @@ static void term_run(term_t *t, char *line) {
     else { term_print(t, cmd); term_print(t, ": commande inconnue\n"); }
 }
 
-// --- Rappels fenêtre ---------------------------------------------------------
+// =============================================================================
+//  Rappels fenêtre
+// =============================================================================
 static void term_paint(window_t *win) {
     term_t *t = (term_t *)win->user;
     canvas_t *c = &win->canvas;
@@ -180,7 +362,6 @@ static void term_paint(window_t *win) {
             char ch = t->cells[y][x];
             if (ch && ch != ' ') canvas_draw_char(c, ch, x * 8, y * 16, fg, 1);
         }
-    // Curseur de saisie.
     canvas_fill_rect(c, t->cx * 8, t->cy * 16 + 14, 8, 2, fb_rgb(0x6e,0xe7,0x9a));
 }
 
@@ -188,20 +369,33 @@ static void term_event(window_t *win, const event_t *e, int cx, int cy) {
     (void)cx; (void)cy;
     if (e->type != EV_KEY || !e->pressed) return;
     term_t *t = (term_t *)win->user;
-    T = t;
-    if (e->key == KEY_ENTER) {
-        t->input[t->input_len] = 0;
-        term_putc(t, '\n');
-        term_run(t, t->input);
-        t->input_len = 0;
-        term_prompt(t);
-    } else if (e->key == KEY_BACKSPACE) {
-        if (t->input_len > 0) { t->input_len--; term_putc(t, '\b'); }
-    } else if (e->ch) {
-        if (t->input_len < (int)sizeof(t->input) - 1) {
-            t->input[t->input_len++] = e->ch;
-            term_putc(t, e->ch);
+
+    switch (e->key) {
+        case KEY_ENTER: {
+            // Place le curseur en fin de saisie puis passe à la ligne.
+            t->input_pos = t->input_len;
+            redraw_input(t);
+            int endlin = t->prompt_row * TCOLS + t->prompt_col + t->input_len;
+            t->cx = endlin % TCOLS; t->cy = endlin / TCOLS;
+            if (t->cy >= TROWS) t->cy = TROWS - 1;
+            term_newline(t);
+            t->input[t->input_len] = 0;
+            char line[INPUT_MAX]; strcpy(line, t->input);
+            t->input_len = t->input_pos = 0;
+            term_run(t, line);
+            term_prompt(t);
+            break;
         }
+        case KEY_BACKSPACE: input_backspace(t); redraw_input(t); break;
+        case KEY_DELETE:    input_delete(t);    redraw_input(t); break;
+        case KEY_LEFT:  if (t->input_pos > 0) t->input_pos--; redraw_input(t); break;
+        case KEY_RIGHT: if (t->input_pos < t->input_len) t->input_pos++; redraw_input(t); break;
+        case KEY_HOME:  t->input_pos = 0; redraw_input(t); break;
+        case KEY_END:   t->input_pos = t->input_len; redraw_input(t); break;
+        case KEY_TAB:   term_complete(t); break;
+        default:
+            if (e->ch) { input_insert(t, e->ch); redraw_input(t); }
+            break;
     }
     win->dirty = true;
 }
@@ -218,7 +412,7 @@ void app_terminal_open(void) {
     win->user = t;
     win->on_paint = term_paint;
     win->on_event = term_event;
-    term_print(t, "MonOS Terminal v2 -- tapez 'help'.\n");
+    term_print(t, "MonOS Terminal v2 -- 'help', Tab pour completer.\n");
     term_prompt(t);
     win->dirty = true;
 }
