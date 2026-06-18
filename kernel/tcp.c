@@ -15,9 +15,10 @@
 #define TCP_PSH 0x08
 #define TCP_ACK 0x10
 
-enum { ST_CLOSED, ST_SYN_SENT, ST_ESTABLISHED, ST_CLOSE_WAIT };
+enum { ST_CLOSED, ST_SYN_SENT, ST_SYN_RCVD, ST_ESTABLISHED, ST_CLOSE_WAIT };
 
 #define MAX_CONN 8
+#define MAX_LISTEN 4
 #define RXBUF 16384
 
 typedef struct {
@@ -29,11 +30,19 @@ typedef struct {
     uint8_t  rx[RXBUF];
     int      rxlen;
     bool     fin;
+    bool     passive;        // connexion issue d'un listen
+    bool     accepted;       // déjà remise à l'application
 } conn_t;
 
 static conn_t conns[MAX_CONN];
+static uint16_t listen_ports[MAX_LISTEN];
 static uint16_t next_port = 49152;
 static uint32_t isn_counter = 0x12345678;
+
+static bool is_listening(uint16_t port) {
+    for (int i = 0; i < MAX_LISTEN; i++) if (listen_ports[i] == port) return true;
+    return false;
+}
 
 static conn_t *find_conn(ip4_t rip, uint16_t rport, uint16_t lport) {
     for (int i = 0; i < MAX_CONN; i++)
@@ -79,9 +88,32 @@ void tcp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
     int doff=((d[12]>>4)&0xF)*4;
     uint8_t flags=d[13];
     conn_t *c = find_conn(src, sport, dport);
+
+    // Ouverture passive : SYN vers un port en écoute -> SYN-ACK.
+    if (!c && (flags & TCP_SYN) && !(flags & TCP_ACK) && is_listening(dport)) {
+        int idx = -1;
+        for (int i = 0; i < MAX_CONN; i++) if (!conns[i].used) { idx = i; break; }
+        if (idx < 0) return;
+        c = &conns[idx];
+        memset(c, 0, sizeof(*c));
+        c->used = true; c->state = ST_SYN_RCVD; c->passive = true;
+        c->rip = src; c->rport = sport; c->lport = dport;
+        c->rcv_nxt = seq + 1;
+        c->snd_nxt = isn_counter += 0x1000;
+        c->snd_una = c->snd_nxt;
+        tcp_out(c, TCP_SYN | TCP_ACK, NULL, 0);
+        c->snd_nxt++;                       // le SYN consomme un numéro de séquence
+        return;
+    }
     if (!c) return;
 
     if (flags & TCP_RST) { c->state = ST_CLOSED; c->fin = true; return; }
+
+    if (c->state == ST_SYN_RCVD && (flags & TCP_ACK)) {
+        c->snd_una = ack;
+        c->state = ST_ESTABLISHED;
+        // (les données éventuelles de ce segment sont traitées ci-dessous)
+    }
 
     if (c->state == ST_SYN_SENT && (flags & TCP_SYN) && (flags & TCP_ACK)) {
         c->rcv_nxt = seq + 1;
@@ -106,6 +138,26 @@ void tcp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
             c->state = ST_CLOSE_WAIT;
             tcp_out(c, TCP_ACK, NULL, 0);
         }
+    }
+}
+
+void tcp_listen_port(uint16_t port) {
+    for (int i = 0; i < MAX_LISTEN; i++)
+        if (listen_ports[i] == 0 || listen_ports[i] == port) { listen_ports[i] = port; return; }
+}
+
+// Attend une nouvelle connexion entrante sur 'port'. Renvoie son id (-1 sinon).
+int tcp_accept(uint16_t port, uint32_t timeout_ms) {
+    uint64_t end = pit_ms() + timeout_ms;
+    for (;;) {
+        nic_poll();
+        for (int i = 0; i < MAX_CONN; i++)
+            if (conns[i].used && conns[i].passive && !conns[i].accepted &&
+                conns[i].lport == port && conns[i].state == ST_ESTABLISHED) {
+                conns[i].accepted = true;
+                return i;
+            }
+        if (pit_ms() >= end) return -1;
     }
 }
 

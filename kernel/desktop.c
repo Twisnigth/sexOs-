@@ -14,6 +14,7 @@
 #include "rtc.h"
 #include "users.h"
 #include "apps.h"
+#include "ssh.h"
 #include "io.h"
 
 #define TASKBAR_H 36
@@ -232,6 +233,7 @@ static bool login_screen(void) {
                 }
             }
         }
+        sshd_poll();              // sert une éventuelle connexion SSH entrante
         if (!got) __asm__ volatile ("hlt");
     }
 }
@@ -291,6 +293,7 @@ void desktop_run(void) {
 
             if (logout_requested) break;
 
+            sshd_poll();          // sert une éventuelle connexion SSH entrante
             if (changed) present();
             else __asm__ volatile ("hlt");
         }

@@ -16,4 +16,9 @@ int ssh_handshake_test(ip4_t ip, uint16_t port);
 int ssh_client_exec(ip4_t ip, uint16_t port, const char *user, const char *password,
                     const char *command, char *out, int outmax);
 
+// Serveur SSH : génère la clé d'hôte et écoute le port 22.
+void ssh_server_init(void);
+// À appeler régulièrement (boucle du bureau) : sert une connexion entrante.
+void sshd_poll(void);
+
 #endif

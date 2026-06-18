@@ -74,6 +74,8 @@ int  tcp_connect(ip4_t dst, uint16_t dport);     // renvoie un id de connexion, 
 int  tcp_send(int conn, const void *data, int len);
 int  tcp_recv(int conn, void *buf, int len, uint32_t timeout_ms);
 void tcp_close(int conn);
+void tcp_listen_port(uint16_t port);             // ouverture passive (serveur)
+int  tcp_accept(uint16_t port, uint32_t timeout_ms);
 
 // --- Utilitaires de haut niveau (utilisés par le shell) ----------------------
 bool net_dhcp(void);                              // obtient une IP par DHCP

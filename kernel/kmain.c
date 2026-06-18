@@ -151,7 +151,7 @@ void kmain(void) {
 
     // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
     net_init();
-    if (nic_present()) net_dhcp();
+    if (nic_present()) { net_dhcp(); ssh_server_init(); }
 
     // --- Système de fichiers + comptes utilisateurs --------------------------
     vfs_init();

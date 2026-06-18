@@ -247,7 +247,8 @@ static bool ssh_recv_useful(ssh_t *s, uint8_t *payload, int *plen) {
     for (int i = 0; i < 16; i++) {
         if (!ssh_recv(s, payload, plen)) return false;
         uint8_t t = payload[0];
-        if (t==MSG_IGNORE || t==MSG_DEBUG || t==MSG_GLOBAL_REQUEST || t==MSG_USERAUTH_BANNER) continue;
+        if (t==MSG_IGNORE || t==MSG_DEBUG || t==MSG_GLOBAL_REQUEST ||
+            t==MSG_USERAUTH_BANNER || t==7 /* EXT_INFO */) continue;
         return true;
     }
     return false;
@@ -321,6 +322,267 @@ int ssh_client_exec(ip4_t ip, uint16_t port, const char *user, const char *passw
     out[total]=0;
     tcp_close(s.conn);
     return total;
+}
+
+// =============================================================================
+//  SERVEUR SSH
+// =============================================================================
+#include "vfs.h"
+#include "users.h"
+#include "rtc.h"
+#include "pmm.h"
+
+static uint8_t host_sk[64], host_pk[32];
+static bool server_ready;
+
+void ssh_server_init(void) {
+    uint8_t seed[32];
+    csprng_bytes(seed, 32);
+    crypto_ed25519_key_pair(host_sk, host_pk, seed);
+    tcp_listen_port(22);
+    server_ready = true;
+    kprintf("[sshd] cle d'hote ed25519 generee, ecoute sur le port 22\n");
+}
+
+// --- Mini-shell pour les sessions distantes (sortie vers un tampon) ----------
+static const user_t *find_user(const char *name) {
+    for (int i = 0; i < users_count(); i++)
+        if (strcmp(users_get(i)->name, name) == 0) return users_get(i);
+    return NULL;
+}
+
+static int shell_exec_one(const char *user, const char *line, char *out, int outmax) {
+    int n = 0;
+    #define OUT(s) do { for (const char *q=(s); *q && n<outmax-1; q++) out[n++]=*q; } while(0)
+    const user_t *u = find_user(user);
+    vfs_node_t *cwd = vfs_resolve(u ? u->home : "/"); if (!cwd) cwd = vfs_root();
+
+    char cmd[64]; int i = 0;
+    while (line[i] && line[i] != ' ' && i < 63) { cmd[i] = line[i]; i++; }
+    cmd[i] = 0;
+    const char *arg = line + i; while (*arg == ' ') arg++;
+
+    if (strcmp(cmd, "echo") == 0) { OUT(arg); OUT("\n"); }
+    else if (strcmp(cmd, "whoami") == 0) { OUT(user); OUT("\n"); }
+    else if (strcmp(cmd, "pwd") == 0) { char p[256]; vfs_path(cwd,p,sizeof(p)); OUT(p); OUT("\n"); }
+    else if (strcmp(cmd, "uname") == 0) { OUT("MonOS 2.0 x86_64\n"); }
+    else if (strcmp(cmd, "date") == 0) { rtc_time_t t; rtc_now(&t); char b[24]; rtc_format(&t,b); OUT(b); OUT("\n"); }
+    else if (strcmp(cmd, "id") == 0) { OUT("user="); OUT(user); OUT(u && u->is_admin ? " (admin)\n" : " (standard)\n"); }
+    else if (strcmp(cmd, "help") == 0) { OUT("commandes: echo ls cat pwd whoami id uname date sysinfo about help\n"); }
+    else if (strcmp(cmd, "about") == 0) { OUT("MonOS v2 -- shell SSH distant\n  D\n  |\n  |\n  8\n"); }
+    else if (strcmp(cmd, "sysinfo") == 0) {
+        char b[24]; OUT("Memoire: "); utoa(pmm_total_bytes()/(1024*1024),b,10); OUT(b); OUT(" Mio\n");
+    }
+    else if (strcmp(cmd, "ls") == 0) {
+        vfs_node_t *d = (arg[0]=='/') ? vfs_resolve(arg) : (arg[0] ? vfs_lookup(cwd,arg) : cwd);
+        if (!d) OUT("ls: introuvable\n");
+        else for (vfs_node_t *c=d->children; c; c=c->next) { OUT(c->name); if (c->type==VFS_DIR) OUT("/"); OUT("\n"); }
+    }
+    else if (strcmp(cmd, "cat") == 0) {
+        vfs_node_t *f = (arg[0]=='/') ? vfs_resolve(arg) : vfs_lookup(cwd,arg);
+        if (!f || f->type!=VFS_FILE) OUT("cat: introuvable\n");
+        else for (size_t k=0;k<f->size && n<outmax-1;k++) out[n++]=f->data[k];
+    }
+    else if (cmd[0]) { OUT(cmd); OUT(": commande inconnue\n"); }
+    out[n] = 0;
+    #undef OUT
+    return n;
+}
+
+// Exécute une ligne en découpant sur ';' (plusieurs commandes).
+static int shell_exec(const char *user, const char *line, char *out, int outmax) {
+    int n = 0;
+    char buf[512];
+    const char *p = line;
+    while (*p && n < outmax - 1) {
+        int i = 0;
+        while (*p && *p != ';' && i < 511) buf[i++] = *p++;
+        buf[i] = 0;
+        if (*p == ';') p++;
+        char *c = buf; while (*c == ' ') c++;
+        if (*c) n += shell_exec_one(user, c, out + n, outmax - n);
+    }
+    out[n] = 0;
+    return n;
+}
+
+// --- Handshake côté serveur --------------------------------------------------
+static int ssh_server_handshake(ssh_t *s) {
+    strcpy(s->v_s, "SSH-2.0-MonOS_1.0");
+    char hello[80]; strcpy(hello, s->v_s); strcat(hello, "\r\n");
+    tcp_send(s->conn, hello, strlen(hello));
+    if (!ssh_readline(s, s->v_c, sizeof(s->v_c))) return -1;
+
+    uint8_t kx[2048]; int o=0;
+    kx[o++]=MSG_KEXINIT; csprng_bytes(kx+o,16); o+=16;
+    o=put_str(kx,o,"curve25519-sha256"); o=put_str(kx,o,"ssh-ed25519");
+    o=put_str(kx,o,"chacha20-poly1305@openssh.com"); o=put_str(kx,o,"chacha20-poly1305@openssh.com");
+    o=put_str(kx,o,""); o=put_str(kx,o,""); o=put_str(kx,o,"none"); o=put_str(kx,o,"none");
+    o=put_str(kx,o,""); o=put_str(kx,o,""); kx[o++]=0; wr32(kx+o,0); o+=4;
+    memcpy(s->i_s,kx,o); s->i_s_len=o;
+    ssh_send(s,kx,o);
+
+    int plen;
+    if (!ssh_recv(s,s->i_c,&plen) || s->i_c[0]!=MSG_KEXINIT) return -1;
+    s->i_c_len=plen;
+
+    uint8_t reply[1024];
+    if (!ssh_recv(s,reply,&plen) || reply[0]!=MSG_KEX_ECDH_INIT) return -1;
+    uint32_t qc_len=rd32(reply+1); if (qc_len!=32) return -1;
+    uint8_t q_c[32]; memcpy(q_c, reply+5, 32);
+
+    uint8_t e_priv[32], q_s[32];
+    csprng_bytes(e_priv,32); crypto_x25519_public_key(q_s,e_priv);
+    uint8_t K[32]; crypto_x25519(K,e_priv,q_c);
+
+    // Blob de clé d'hôte K_S = string("ssh-ed25519") + string(host_pk).
+    uint8_t ksb[128]; int kl=0; kl=put_str(ksb,kl,"ssh-ed25519"); kl=put_bytes(ksb,kl,host_pk,32);
+
+    // Hash d'échange.
+    uint8_t H[32]; sha256_ctx hc; sha256_init(&hc);
+    sha_str(&hc,(uint8_t*)s->v_c,strlen(s->v_c));
+    sha_str(&hc,(uint8_t*)s->v_s,strlen(s->v_s));
+    sha_str(&hc,s->i_c,s->i_c_len); sha_str(&hc,s->i_s,s->i_s_len);
+    sha_str(&hc,ksb,kl); sha_str(&hc,q_c,32); sha_str(&hc,q_s,32);
+    sha_mpint(&hc,K,32); sha256_final(&hc,H);
+    memcpy(s->session_id,H,32);
+
+    // Signature de H avec notre clé d'hôte.
+    uint8_t sig[64]; crypto_ed25519_sign(sig, host_sk, H, 32);
+    uint8_t sb[128]; int sl=0; sl=put_str(sb,sl,"ssh-ed25519"); sl=put_bytes(sb,sl,sig,64);
+
+    // KEX_ECDH_REPLY.
+    o=0; reply[o++]=MSG_KEX_ECDH_REPLY;
+    o=put_bytes(reply,o,ksb,kl); o=put_bytes(reply,o,q_s,32); o=put_bytes(reply,o,sb,sl);
+    ssh_send(s,reply,o);
+
+    // Dérivation : serveur envoie avec 'D', reçoit avec 'C'.
+    uint8_t Kmp[40]; int kml=enc_mpint(Kmp,K,32);
+    derive_key(Kmp,kml,H,'D',s->session_id,s->key_c2s,64);   // notre envoi
+    derive_key(Kmp,kml,H,'C',s->session_id,s->key_s2c,64);   // notre réception
+
+    uint8_t nk=MSG_NEWKEYS; ssh_send(s,&nk,1);
+    if (!ssh_recv(s,reply,&plen) || reply[0]!=MSG_NEWKEYS) return -1;
+    s->encrypted=true;
+    return 0;
+}
+
+// --- Session serveur (auth + canal + exec) -----------------------------------
+static void ssh_server_session(ssh_t *s) {
+    if (ssh_server_handshake(s) != 0) { kprintf("[sshd] handshake echec\n"); return; }
+
+    uint8_t p[PKT_SZ]; int plen;
+    // Service request.
+    if (!ssh_recv_useful(s,p,&plen) || p[0]!=MSG_SERVICE_REQUEST) return;
+    uint8_t acc[64]; int o=0; acc[o++]=MSG_SERVICE_ACCEPT; o=put_str(acc,o,"ssh-userauth");
+    ssh_send(s,acc,o);
+
+    // Authentification.
+    char user[64] = "";
+    bool authed = false;
+    for (int tries=0; tries<6 && !authed; tries++) {
+        if (!ssh_recv_useful(s,p,&plen) || p[0]!=MSG_USERAUTH_REQUEST) return;
+        int q=1; uint32_t ul=rd32(p+q); q+=4; int un=ul<63?ul:63; memcpy(user,p+q,un); user[un]=0; q+=ul;
+        uint32_t sl2=rd32(p+q); q+=4+sl2;                       // service
+        uint32_t ml=rd32(p+q); q+=4; char method[32]; int mn=ml<31?ml:31; memcpy(method,p+q,mn); method[mn]=0; q+=ml;
+        if (strcmp(method,"password")==0) {
+            q+=1;                                               // bool FALSE
+            uint32_t pl=rd32(p+q); q+=4; char pass[128]; int pn=pl<127?pl:127; memcpy(pass,p+q,pn); pass[pn]=0;
+            if (users_authenticate(user, pass)) authed = true;
+        }
+        uint8_t r[64]; o=0;
+        if (authed) { r[o++]=MSG_USERAUTH_SUCCESS; }
+        else { r[o++]=MSG_USERAUTH_FAILURE; o=put_str(r,o,"password"); r[o++]=0; }
+        ssh_send(s,r,o);
+    }
+    if (!authed) { kprintf("[sshd] auth refusee\n"); return; }
+    kprintf("[sshd] %s authentifie\n", user);
+
+    // Canal + requêtes.
+    uint32_t client_ch = 0;
+    for (int guard=0; guard<64; guard++) {
+        if (!ssh_recv_useful(s,p,&plen)) return;
+        uint8_t t = p[0];
+        if (t == MSG_CHANNEL_OPEN) {
+            // string "session", u32 sender, u32 window, u32 maxpkt
+            uint32_t tl=rd32(p+1); int q=5+tl;
+            client_ch = rd32(p+q);
+            uint8_t r[64]; o=0; r[o++]=MSG_CHANNEL_OPEN_CONFIRMATION;
+            wr32(r+o,client_ch); o+=4; wr32(r+o,0); o+=4;       // notre canal 0
+            wr32(r+o,0x100000); o+=4; wr32(r+o,0x4000); o+=4;
+            ssh_send(s,r,o);
+        } else if (t == MSG_CHANNEL_REQUEST) {
+            uint32_t rl=rd32(p+5); char rt[32]; int rn=rl<31?rl:31; memcpy(rt,p+9,rn); rt[rn]=0;
+            int q=9+rl; uint8_t want_reply=p[q]; q++;
+            if (strcmp(rt,"exec")==0) {
+                uint32_t cl=rd32(p+q); q+=4; char command[512]; int cn=cl<511?cl:511; memcpy(command,p+q,cn); command[cn]=0;
+                if (want_reply) { uint8_t r[16]; o=0; r[o++]=MSG_CHANNEL_SUCCESS; wr32(r+o,client_ch); o+=4; ssh_send(s,r,o); }
+                static char obuf[8192];
+                int n = shell_exec(user, command, obuf, sizeof(obuf));
+                // CHANNEL_DATA
+                uint8_t d[8300]; o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)obuf,n);
+                ssh_send(s,d,o);
+                // exit-status
+                o=0; d[o++]=MSG_CHANNEL_REQUEST; wr32(d+o,client_ch); o+=4; o=put_str(d,o,"exit-status"); d[o++]=0; wr32(d+o,0); o+=4;
+                ssh_send(s,d,o);
+                // EOF + CLOSE
+                o=0; d[o++]=MSG_CHANNEL_EOF; wr32(d+o,client_ch); o+=4; ssh_send(s,d,o);
+                o=0; d[o++]=MSG_CHANNEL_CLOSE; wr32(d+o,client_ch); o+=4; ssh_send(s,d,o);
+                return;
+            } else if (strcmp(rt,"shell")==0) {
+                if (want_reply) { uint8_t r[16]; o=0; r[o++]=MSG_CHANNEL_SUCCESS; wr32(r+o,client_ch); o+=4; ssh_send(s,r,o); }
+                // Shell interactif minimal : invite, lecture ligne, execution.
+                const char *banner="MonOS shell distant. Tapez 'help'.\r\n";
+                uint8_t d[8300];
+                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)banner,strlen(banner)); ssh_send(s,d,o);
+                char linebuf[512]; int ll=0;
+                const char *prompt="monos$ ";
+                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)prompt,strlen(prompt)); ssh_send(s,d,o);
+                for (int g=0; g<100000; g++) {
+                    if (!ssh_recv(s,p,&plen)) return;
+                    if (p[0]==MSG_CHANNEL_DATA) {
+                        uint32_t dl=rd32(p+5);
+                        for (uint32_t k=0;k<dl;k++) {
+                            char ch=p[9+k];
+                            if (ch=='\r' || ch=='\n') {
+                                linebuf[ll]=0;
+                                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)"\r\n",2); ssh_send(s,d,o);
+                                if (strcmp(linebuf,"exit")==0) {
+                                    o=0; d[o++]=MSG_CHANNEL_CLOSE; wr32(d+o,client_ch); o+=4; ssh_send(s,d,o); return;
+                                }
+                                static char ob[8192]; int n=shell_exec(user,linebuf,ob,sizeof(ob));
+                                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)ob,n); ssh_send(s,d,o);
+                                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)prompt,strlen(prompt)); ssh_send(s,d,o);
+                                ll=0;
+                            } else if (ch==0x7f || ch==8) {     // backspace
+                                if (ll>0){ ll--; o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)"\b \b",3); ssh_send(s,d,o); }
+                            } else if (ll<511) {
+                                linebuf[ll++]=ch;               // écho
+                                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; d[o++]=0;d[o++]=0;d[o++]=0;d[o++]=1; d[o++]=ch; ssh_send(s,d,o);
+                            }
+                        }
+                    } else if (p[0]==MSG_CHANNEL_EOF || p[0]==MSG_CHANNEL_CLOSE) return;
+                }
+                return;
+            } else {
+                if (want_reply) { uint8_t r[16]; o=0; r[o++]=MSG_CHANNEL_SUCCESS; wr32(r+o,client_ch); o+=4; ssh_send(s,r,o); }
+            }
+        } else if (t == MSG_CHANNEL_CLOSE || t == MSG_DISCONNECT) {
+            return;
+        }
+    }
+}
+
+// Vérifie de façon non bloquante une connexion entrante et la sert.
+void sshd_poll(void) {
+    if (!server_ready) return;
+    int conn = tcp_accept(22, 0);
+    if (conn < 0) return;
+    static ssh_t s; memset(&s,0,sizeof(s));
+    s.conn = conn;
+    kprintf("[sshd] connexion entrante\n");
+    ssh_server_session(&s);
+    tcp_close(conn);
 }
 
 // --- Jalon de test : handshake seul ------------------------------------------
