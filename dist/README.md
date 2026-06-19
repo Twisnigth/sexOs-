@@ -32,11 +32,15 @@ une tâche réseau du noyau. Pour l'essayer en QEMU :
    (passerelle SLIRP).
 
 **HTTPS / TLS 1.3** est géré (suite `TLS_CHACHA20_POLY1305_SHA256`, échange
-X25519). La **vérification du certificat** (chaîne RSA + nom d'hôte + dates) est
-implémentée : le navigateur affiche `[TLS verifie]` ou `[TLS non verifie]`.
-Limites actuelles : seuls les certificats **RSA** sont vérifiés (ECDSA à venir),
-et le magasin n'embarque qu'une **racine de test** (pas encore le paquet d'AC
-complet) — les vrais sites publics s'afficheront donc « non vérifié ».
+X25519), avec **vérification de certificat RSA et ECDSA P-256**, un **magasin
+d'environ 150 AC racines** (paquet Mozilla), le suivi des **redirections** et le
+**nom d'hôte (SAN)**. Le navigateur affiche `[TLS verifie]` / `[TLS non verifie]`.
+La page d'accueil par défaut est `https://google.com/`. Limites : ECDSA **P-384**
+et **AES-GCM** pas encore gérés (sites concernés affichés « non vérifié »).
+
+> Remarque : sous certains hyperviseurs/réseaux d'entreprise qui **interceptent
+> le TLS**, le certificat présenté n'est pas celui du vrai site — le navigateur
+> l'indiquera. Sur une machine à Internet ouvert, les vrais sites se chargent.
 
 Côté noyau (exécuté au démarrage), l'image embarque aussi :
 - **Réseau** (e1000 + DHCP/DNS) : `ifconfig`, `ping`, `nslookup`, `wget`.

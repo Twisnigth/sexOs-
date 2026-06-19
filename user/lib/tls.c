@@ -13,6 +13,7 @@
 #include "crypto.h"        // sha256_ctx / sha256_*  (+ monocypher.h)
 #include "x509.h"
 #include "rsa.h"
+#include "ecdsa.h"
 #include "castore.h"
 
 void *memcpy(void *, const void *, unsigned long);
@@ -252,7 +253,7 @@ static void parse_certificate(const uint8_t *body, int n) {
 
 // Vérifie la signature CertificateVerify avec la clé de la feuille (RSA).
 static int cert_verify_sig(int scheme, const uint8_t *sig, int siglen, const uint8_t th_cert[32]) {
-    if (g_ncerts < 1 || !g_certs[0].pub_is_rsa) return 0;
+    if (g_ncerts < 1) return 0;
     uint8_t content[64 + 33 + 1 + 32]; int o = 0;
     for (int i = 0; i < 64; i++) content[o++] = 0x20;
     const char *ctx = "TLS 1.3, server CertificateVerify";
@@ -260,10 +261,14 @@ static int cert_verify_sig(int scheme, const uint8_t *sig, int siglen, const uin
     content[o++] = 0x00;
     memcpy(content + o, th_cert, 32); o += 32;
     uint8_t h[32]; sha256(content, o, h);
-    bn_t *n = &g_certs[0].pub_n; const uint8_t *e = g_certs[0].pub_e; int el = g_certs[0].pub_e_len;
-    if (scheme == 0x0804) return rsa_verify_pss_sha256(n, e, el, sig, siglen, h);   // rsa_pss_rsae_sha256
-    if (scheme == 0x0401) return rsa_verify_pkcs1_sha256(n, e, el, sig, siglen, h); // rsa_pkcs1_sha256
-    return 0;                                            // ECDSA / SHA-384 : non géré
+    x509_cert *leaf = &g_certs[0];
+    if (scheme == 0x0804 && leaf->pub_is_rsa)        // rsa_pss_rsae_sha256
+        return rsa_verify_pss_sha256(&leaf->pub_n, leaf->pub_e, leaf->pub_e_len, sig, siglen, h);
+    if (scheme == 0x0401 && leaf->pub_is_rsa)        // rsa_pkcs1_sha256
+        return rsa_verify_pkcs1_sha256(&leaf->pub_n, leaf->pub_e, leaf->pub_e_len, sig, siglen, h);
+    if (scheme == 0x0403 && leaf->pub_is_ec)         // ecdsa_secp256r1_sha256
+        return ecdsa_p256_verify(leaf->ec_qx, leaf->ec_qy, sig, siglen, h);
+    return 0;                                         // SHA-384/P-384/Ed25519 : non géré
 }
 
 // Vérifie la chaîne : hôte, dates, signatures, racine de confiance.

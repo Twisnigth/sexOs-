@@ -109,39 +109,52 @@ l'utilise automatiquement pour les URL `https://` (port 443 par défaut).
   clés applicatives. Couche d'enregistrement chiffrée (nonce = iv⊕seq, en-tête en
   données associées).
 
-## Vérification du certificat (authentification RSA)
+## Vérification du certificat (RSA + ECDSA P-256, vrai magasin d'AC)
 
-La chaîne de certificats est désormais **vérifiée** (pour les certificats RSA) :
+La chaîne de certificats est **vérifiée** (RSA et ECDSA P-256) :
 
 - **Grands entiers** (`bigint.c`) : exponentiation modulaire jusqu'à 4096 bits
-  (testée contre `pow()` de Python pour 1024/2048/4096 bits).
+  (testée contre `pow()` de Python ; réduction à largeur adaptative).
 - **RSA** (`rsa.c`) : vérification **PKCS#1 v1.5** et **PSS** (MGF1-SHA256),
-  RFC 8017 (testée contre des signatures OpenSSL/Python).
-- **X.509** (`x509.c`) : analyseur **ASN.1/DER**, extraction clé publique RSA,
-  dates, **SubjectAltName** (DNS et IP), DN ; vérification « cert signé par cert ».
-- **Magasin d'AC** (`castore.c`) : racines de confiance embarquées.
-- Dans le handshake (`tls.c`) : on vérifie le **CertificateVerify** (preuve que le
-  serveur détient la clé de la feuille, RSA-PSS sur le hachage de transcription),
-  la **chaîne** jusqu'à une racine de confiance, les **dates** et le **nom d'hôte**
-  (SAN). Le résultat est rapporté à l'application (`tls_t.verified`) et affiché par
-  le navigateur (`[TLS verifie]` / `[TLS non verifie]`).
+  RFC 8017 (testée contre OpenSSL/Python).
+- **ECDSA P-256** (`ecdsa.c`) : arithmétique de courbe en coordonnées
+  **jacobiennes** (corps P-256, ordre n), vérification `secp256r1` + SHA-256
+  (testée contre des signatures OpenSSL ; signatures DER).
+- **X.509** (`x509.c`) : analyseur **ASN.1/DER**, clés publiques **RSA et EC**,
+  dates, **SubjectAltName** (DNS et IP), DN ; « cert signé par cert » (RSA/ECDSA).
+- **Magasin d'AC** (`castore.c`) : **~150 autorités racines** (paquet système
+  Mozilla) + racine de la passerelle de test + racine de test.
+- Handshake (`tls.c`) : vérification du **CertificateVerify** (preuve de
+  possession de la clé de la feuille — RSA-PSS **ou ECDSA P-256**), de la
+  **chaîne** jusqu'à une racine de confiance, des **dates** et du **nom d'hôte**
+  (SAN). Résultat rapporté (`tls_t.verified`) et affiché (`[TLS verifie]`).
 
-**Vérifié** : en QEMU, MonOS effectue le handshake complet contre un serveur
-**TLS 1.3 réel** (OpenSSL, certificat signé par la racine de test embarquée) et
-récupère `https://10.0.2.2:8444/` — `HTTP 200`, badge **« certificat verifie
-(chaine de confiance OK) »** (cf. `docs/ring3-https-verified.png`), zéro panique.
+**HTTP/HTTPS complet** : le client suit aussi les **redirections** (3xx +
+`Location`, jusqu'à 6 sauts) et accepte des pages jusqu'à ~400 Kio.
 
-> ℹ️ Politique actuelle : la vérification est **rapportée** (le navigateur affiche
-> l'état) mais **non bloquante** — une page non vérifiée s'affiche avec un
-> avertissement. Passer en *fail-closed* (refus si non vérifié) est trivial.
+**Vérifié en QEMU** :
+- contre un serveur **TLS 1.3 ECDSA** réel (OpenSSL) : `[TLS verifie]`
+  (`docs/ring3-https-ecdsa.png`) ;
+- redirection `302` suivie jusqu'à la page finale (`HTTP 200`) ;
+- connexion à **`https://google.com`** sur l'Internet réel : handshake + chaîne
+  **RSA multi-certificats** vérifiée → `[TLS verifie]`
+  (`docs/ring3-https-google.png`).
+
+> ⚠️ **Limite de cet environnement de test** : la passerelle de sortie Anthropic
+> **intercepte tout le TLS** et renvoie `403 « Host not in allowlist »` pour les
+> hôtes non autorisés. Le contenu réel de google.com ne peut donc **pas** être
+> affiché *depuis le bac à sable* — mais tout le chemin (DNS, TLS 1.3,
+> vérification de chaîne réelle, HTTP) fonctionne. Sur une **vraie machine** à
+> Internet ouvert, le même code charge la page réelle.
+
+> ℹ️ Vérification **rapportée mais non bloquante** : une page non vérifiée
+> s'affiche avec l'avertissement `[TLS non verifie]`. Passer en *fail-closed* est
+> trivial.
 
 ## Reste à faire (périmètre assumé)
 
-- **ECDSA P-256** : nombre de certificats publics utilisent ECDSA (feuille et/ou
-  AC). À implémenter (arithmétique de courbe sur le corps P-256) pour couvrir le
-  web réel ; en attendant, ces certificats sont signalés « non vérifiés ».
-- **Paquet d'AC racines réel** (Mozilla, ~150 AC) au lieu de la seule racine de
-  test, pour authentifier les vrais sites.
+- **ECDSA P-384** (et Ed25519) : certaines AC racines/chaînes les utilisent ; en
+  attendant ces maillons sont signalés « non vérifiés ».
 - **AES-GCM** : pour interopérer avec les serveurs qui n'offrent pas ChaCha20.
 - **SSH** : le serveur est encore écrit en style **bloquant** et n'a pas été
   porté sur le modèle non bloquant de la tâche réseau ; il reste donc dormant

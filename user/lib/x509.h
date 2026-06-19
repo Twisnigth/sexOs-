@@ -19,6 +19,8 @@ typedef struct {
     int            sig_alg;                   // algo de signature du certificat
     int            pub_is_rsa;
     bn_t           pub_n;    const uint8_t *pub_e; int pub_e_len;   // clé publique RSA
+    int            pub_is_ec;                 // clé publique ECDSA P-256
+    uint8_t        ec_qx[32], ec_qy[32];
     const uint8_t *subject;  int subject_len; // DN (SEQUENCE brute)
     const uint8_t *issuer;   int issuer_len;
     const uint8_t *spki;     int spki_len;    // SubjectPublicKeyInfo brut

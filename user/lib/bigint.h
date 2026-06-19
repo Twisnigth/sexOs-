@@ -23,5 +23,7 @@ int  bn_bytelen(const bn_t *a);                  // nombre d'octets significatif
 int  bn_bitlen(const bn_t *a);                   // nombre de bits significatifs
 // out = base ^ exp mod mod  (exp en octets gros-boutistes : exposant public).
 void bn_modexp(bn_t *out, const bn_t *base, const uint8_t *exp, int elen, const bn_t *mod);
+// r = a * b mod n  (utilisé par l'arithmétique de courbe ECDSA).
+void bn_modmul(bn_t *r, const bn_t *a, const bn_t *b, const bn_t *n);
 
 #endif

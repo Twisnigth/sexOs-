@@ -3,6 +3,7 @@
 // =============================================================================
 #include "x509.h"
 #include "rsa.h"
+#include "ecdsa.h"
 #include "crypto.h"
 
 unsigned long strlen(const char *);
@@ -46,6 +47,7 @@ static const uint8_t OID_RSA_PKCS1_SHA256[] = {0x2a,0x86,0x48,0x86,0xf7,0x0d,0x0
 static const uint8_t OID_RSA_PSS[]          = {0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x0a};
 static const uint8_t OID_ECDSA_SHA256[]     = {0x2a,0x86,0x48,0xce,0x3d,0x04,0x03,0x02};
 static const uint8_t OID_RSA_ENC[]          = {0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x01};
+static const uint8_t OID_EC_PUBKEY[]        = {0x2a,0x86,0x48,0xce,0x3d,0x02,0x01};   // id-ecPublicKey
 static const uint8_t OID_SAN[]              = {0x55,0x1d,0x11};   // 2.5.29.17
 
 static int sigalg_from_oid(const uint8_t *o, int ol) {
@@ -124,12 +126,13 @@ int x509_parse(const uint8_t *der, int len, x509_cert *c) {
     { const uint8_t *s = t; const uint8_t *kin, *kend;
       if (!der_enter(&t, tend, 0x30, &kin, &kend)) return -1;
       c->spki = s; c->spki_len = (int)(t - s);
-      int alg;                                       // algorithme de la clé
+      int is_rsa = 0, is_ec = 0;                     // algorithme de la clé
       { const uint8_t *ain, *aend; if (!der_enter(&kin, kend, 0x30, &ain, &aend)) return -1;
         if (!der_read(&ain, aend, &tag, &val, &vlen) || tag != 0x06) return -1;
-        alg = oid_eq(val, vlen, OID_RSA_ENC, sizeof OID_RSA_ENC); }
+        is_rsa = oid_eq(val, vlen, OID_RSA_ENC, sizeof OID_RSA_ENC);
+        is_ec  = oid_eq(val, vlen, OID_EC_PUBKEY, sizeof OID_EC_PUBKEY); }
       if (!der_read(&kin, kend, &tag, &val, &vlen) || tag != 0x03) return -1;   // BIT STRING
-      if (alg) {
+      if (is_rsa) {
         c->pub_is_rsa = 1;
         const uint8_t *rin = val + 1, *rend = val + vlen;      // RSAPublicKey
         const uint8_t *sin, *send;
@@ -138,6 +141,9 @@ int x509_parse(const uint8_t *der, int len, x509_cert *c) {
         if (bn_from_be(&c->pub_n, val, vlen) != 0) return -1;
         if (!der_read(&sin, send, &tag, &val, &vlen) || tag != 0x02) return -1; // exponent
         c->pub_e = val; c->pub_e_len = vlen;
+      } else if (is_ec && vlen == 66 && val[1] == 0x04) {       // point P-256 : 00 04 X(32) Y(32)
+        c->pub_is_ec = 1;
+        for (int i = 0; i < 32; i++) { c->ec_qx[i] = val[2 + i]; c->ec_qy[i] = val[34 + i]; }
       }
     }
     // extensions [3] EXPLICIT (optionnel) : on cherche le SAN.
@@ -171,13 +177,14 @@ int x509_dn_equal(const uint8_t *a, int al, const uint8_t *b, int bl) {
 }
 
 int x509_verify_signed_by(const x509_cert *child, const x509_cert *iss) {
-    if (!iss->pub_is_rsa) return 0;                   // émetteur non-RSA : non géré
     uint8_t h[32]; sha256(child->tbs, child->tbs_len, h);
-    if (child->sig_alg == SIGALG_RSA_PKCS1_SHA256)
+    if (child->sig_alg == SIGALG_RSA_PKCS1_SHA256 && iss->pub_is_rsa)
         return rsa_verify_pkcs1_sha256(&iss->pub_n, iss->pub_e, iss->pub_e_len, child->sig, child->sig_len, h);
-    if (child->sig_alg == SIGALG_RSA_PSS_SHA256)
+    if (child->sig_alg == SIGALG_RSA_PSS_SHA256 && iss->pub_is_rsa)
         return rsa_verify_pss_sha256(&iss->pub_n, iss->pub_e, iss->pub_e_len, child->sig, child->sig_len, h);
-    return 0;                                          // ECDSA / inconnu
+    if (child->sig_alg == SIGALG_ECDSA_SHA256 && iss->pub_is_ec)
+        return ecdsa_p256_verify(iss->ec_qx, iss->ec_qy, child->sig, child->sig_len, h);
+    return 0;                                          // algo/clé non gérés (ex. P-384)
 }
 
 // Compare un motif SAN (ex. "*.exemple.fr") à 'host' (insensible à la casse).

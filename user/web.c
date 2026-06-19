@@ -26,8 +26,8 @@ void utoa(unsigned long, char *);
 static canvas_t *cv;
 static char      url[256];
 static int       urllen;
-static char      bodybuf[160000];
-static char      text[200000];
+static char      bodybuf[400000];
+static char      text[500000];
 static int       textlen;
 static int       status, bodylen, scroll, total_lines, loading;
 static const char *err;
@@ -187,7 +187,7 @@ int main(void) {
     cv = win_create(840, 600, "Navigateur");
     if (!cv) return 1;
     memset(text, 0, 1);
-    strcpy(url, "http://10.0.2.2:8000/");
+    strcpy(url, "https://google.com/");
     urllen = (int)strlen(url);
 
     // Affiche une page d'accueil, puis tente le chargement initial.

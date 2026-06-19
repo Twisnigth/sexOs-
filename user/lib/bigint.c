@@ -74,24 +74,27 @@ static int cmp_n(const uint32_t *a, const uint32_t *b, int len) {
 
 // r = a mod n.  a : 2*BN_LIMBS limbes ; n,r : BN_LIMBS limbes.
 //  Division binaire (un bit à la fois), bornée au bit de poids fort de a.
+//  La largeur de travail W est calée sur la taille du module (le reste reste
+//  < n) : un module 256 bits n'entraîne pas de calcul sur 4096 bits (ECDSA).
 static void bn_mod_2n(bn_t *r, const uint32_t *a, const bn_t *n) {
     uint32_t rem[BN_LIMBS + 1];
     for (int i = 0; i <= BN_LIMBS; i++) rem[i] = 0;
     uint32_t nn[BN_LIMBS + 1];
-    for (int i = 0; i < BN_LIMBS; i++) nn[i] = n->v[i];
-    nn[BN_LIMBS] = 0;
+    for (int i = 0; i <= BN_LIMBS; i++) nn[i] = (i < BN_LIMBS) ? n->v[i] : 0;
+    int nbits = top_bit(n->v, BN_LIMBS);
+    if (nbits < 0) { bn_zero(r); return; }        // module nul -> 0
+    int W = nbits / 32 + 2; if (W > BN_LIMBS + 1) W = BN_LIMBS + 1;
     int hb = top_bit(a, 2 * BN_LIMBS);
     if (hb < 0) { bn_zero(r); return; }
     for (int bit = hb; bit >= 0; bit--) {
-        // rem <<= 1
-        uint32_t carry = 0;
-        for (int i = 0; i <= BN_LIMBS; i++) {
+        uint32_t carry = 0;                       // rem <<= 1
+        for (int i = 0; i < W; i++) {
             uint32_t nc = rem[i] >> 31;
             rem[i] = (rem[i] << 1) | carry;
             carry = nc;
         }
         rem[0] |= get_bit(a, bit);
-        if (cmp_n(rem, nn, BN_LIMBS + 1) >= 0) sub_in_place(rem, nn, BN_LIMBS + 1);
+        if (cmp_n(rem, nn, W) >= 0) sub_in_place(rem, nn, W);
     }
     for (int i = 0; i < BN_LIMBS; i++) r->v[i] = rem[i];
 }
@@ -112,7 +115,7 @@ static void bn_mul(uint32_t *p, const bn_t *a, const bn_t *b) {
 }
 
 // r = a * b mod n
-static void bn_modmul(bn_t *r, const bn_t *a, const bn_t *b, const bn_t *n) {
+void bn_modmul(bn_t *r, const bn_t *a, const bn_t *b, const bn_t *n) {
     uint32_t p[2 * BN_LIMBS];
     bn_mul(p, a, b);
     bn_mod_2n(r, p, n);
