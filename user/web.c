@@ -21,7 +21,7 @@ void utoa(unsigned long, char *);
 #define M       8                 // marge
 #define URLY    6                 // barre d'adresse
 #define STY     30                // ligne de statut
-#define BODYY   50                // début de la zone de page
+#define BODYY   66                // début de la zone de page (laisse place au détail TLS)
 
 static canvas_t *cv;
 static char      url[256];
@@ -133,12 +133,23 @@ static void render(void) {
         const char *e = err; while (*e) *p++=*e++; *p=0;
         canvas_draw_string(cv, buf, M, STY, ERR, 1);
     } else {
+        // Indicateur TLS (cadenas) pour les pages https.
+        int sx = M;
+        if (http_last_secure) {
+            const char *tag = http_last_verified ? "[TLS verifie]" : "[TLS non verifie]";
+            uint32_t tc = http_last_verified ? OK : rgb(0xff,0xc0,0x40);
+            canvas_draw_string(cv, tag, sx, STY, tc, 1);
+            sx += (int)strlen(tag) * 8 + 12;
+        }
         char *p = buf; const char *a = "HTTP "; while (*a) *p++=*a++;
         utoa(status, num); for (char *q=num; *q; q++) *p++=*q;
-        a = "   -   "; while (*a) *p++=*a++;
+        a = "  -  "; while (*a) *p++=*a++;
         utoa(bodylen, num); for (char *q=num; *q; q++) *p++=*q;
-        a = " octets   -   [Entree] charger  [fleches] defiler"; while (*a) *p++=*a++; *p=0;
-        canvas_draw_string(cv, buf, M, STY, status==200?OK:DIM, 1);
+        a = " o  -  [Entree] charger"; while (*a) *p++=*a++; *p=0;
+        canvas_draw_string(cv, buf, sx, STY, status==200?OK:DIM, 1);
+        // Détail de vérification sur la ligne suivante si https.
+        if (http_last_secure && http_last_vinfo[0])
+            canvas_draw_string(cv, http_last_vinfo, M, STY + 16, DIM, 1);
     }
 
     // Zone de page.

@@ -32,10 +32,11 @@ une tâche réseau du noyau. Pour l'essayer en QEMU :
    (passerelle SLIRP).
 
 **HTTPS / TLS 1.3** est géré (suite `TLS_CHACHA20_POLY1305_SHA256`, échange
-X25519) : les URL `https://` fonctionnent contre la plupart des serveurs
-modernes. ⚠️ Le **certificat n'est pas encore vérifié** : la connexion est
-chiffrée mais **non authentifiée** (pas de protection contre un homme du milieu
-actif). À ne pas utiliser pour des secrets réels en l'état.
+X25519). La **vérification du certificat** (chaîne RSA + nom d'hôte + dates) est
+implémentée : le navigateur affiche `[TLS verifie]` ou `[TLS non verifie]`.
+Limites actuelles : seuls les certificats **RSA** sont vérifiés (ECDSA à venir),
+et le magasin n'embarque qu'une **racine de test** (pas encore le paquet d'AC
+complet) — les vrais sites publics s'afficheront donc « non vérifié ».
 
 Côté noyau (exécuté au démarrage), l'image embarque aussi :
 - **Réseau** (e1000 + DHCP/DNS) : `ifconfig`, `ping`, `nslookup`, `wget`.

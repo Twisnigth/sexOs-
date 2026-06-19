@@ -13,4 +13,9 @@
 // l'attente se fait par sys_yield (coopératif), donc le reste du bureau continue.
 int http_fetch(const char *url, char *body, int maxbody, int *status, const char **err);
 
+// État TLS de la dernière requête (rempli par http_fetch).
+extern int  http_last_secure;     // 1 si https
+extern int  http_last_verified;   // 1 si certificat vérifié
+extern char http_last_vinfo[72];  // détail de la vérification
+
 #endif

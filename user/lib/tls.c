@@ -11,6 +11,9 @@
 #include "monos.h"
 #include "tls.h"
 #include "crypto.h"        // sha256_ctx / sha256_*  (+ monocypher.h)
+#include "x509.h"
+#include "rsa.h"
+#include "castore.h"
 
 void *memcpy(void *, const void *, unsigned long);
 void *memset(void *, int, unsigned long);
@@ -23,6 +26,9 @@ unsigned long strlen(const char *);
 #define CT_APPDATA 23
 #define HS_CLIENT_HELLO 1
 #define HS_SERVER_HELLO 2
+#define HS_ENCRYPTED_EXT 8
+#define HS_CERT 11
+#define HS_CERT_VERIFY 15
 #define HS_FINISHED 20
 
 static int ms(void) { return (int)sys_time_ms(); }
@@ -211,14 +217,89 @@ static int build_client_hello(uint8_t *o, const uint8_t random[32], const uint8_
     return p;
 }
 
+// --- Vérification du certificat ---------------------------------------------
+static uint8_t   certder[16384];     // copie stable de la chaîne reçue
+static x509_cert g_certs[6];
+static int       g_ncerts;
+
+typedef struct { uint8_t second, minute, hour, day, month; uint16_t year; } tls_rtc_t;
+static uint64_t now_stamp(void) {
+    tls_rtc_t t; sys_rtc(&t);
+    return ((((((uint64_t)t.year*100+t.month)*100+t.day)*100+t.hour)*100+t.minute)*100+t.second);
+}
+static void setinfo(char *d, const char *s) { int i = 0; for (; s[i] && i < 71; i++) d[i] = s[i]; d[i] = 0; }
+
+// Analyse le message Certificate (TLS 1.3) et remplit g_certs.
+static void parse_certificate(const uint8_t *body, int n) {
+    g_ncerts = 0;
+    if (n > (int)sizeof(certder)) return;
+    memcpy(certder, body, n);
+    int o = 0;
+    if (o >= n) return;
+    int ctxlen = certder[o]; o += 1 + ctxlen;            // certificate_request_context
+    if (o + 3 > n) return;
+    int listlen = (certder[o]<<16)|(certder[o+1]<<8)|certder[o+2]; o += 3;
+    int listend = o + listlen; if (listend > n) listend = n;
+    while (o + 3 <= listend && g_ncerts < 6) {
+        int clen = (certder[o]<<16)|(certder[o+1]<<8)|certder[o+2]; o += 3;
+        if (o + clen > listend) break;
+        if (x509_parse(certder + o, clen, &g_certs[g_ncerts]) == 0) g_ncerts++;
+        o += clen;
+        if (o + 2 > listend) break;
+        int extlen = (certder[o]<<8)|certder[o+1]; o += 2 + extlen;
+    }
+}
+
+// Vérifie la signature CertificateVerify avec la clé de la feuille (RSA).
+static int cert_verify_sig(int scheme, const uint8_t *sig, int siglen, const uint8_t th_cert[32]) {
+    if (g_ncerts < 1 || !g_certs[0].pub_is_rsa) return 0;
+    uint8_t content[64 + 33 + 1 + 32]; int o = 0;
+    for (int i = 0; i < 64; i++) content[o++] = 0x20;
+    const char *ctx = "TLS 1.3, server CertificateVerify";
+    for (const char *p = ctx; *p; p++) content[o++] = *p;
+    content[o++] = 0x00;
+    memcpy(content + o, th_cert, 32); o += 32;
+    uint8_t h[32]; sha256(content, o, h);
+    bn_t *n = &g_certs[0].pub_n; const uint8_t *e = g_certs[0].pub_e; int el = g_certs[0].pub_e_len;
+    if (scheme == 0x0804) return rsa_verify_pss_sha256(n, e, el, sig, siglen, h);   // rsa_pss_rsae_sha256
+    if (scheme == 0x0401) return rsa_verify_pkcs1_sha256(n, e, el, sig, siglen, h); // rsa_pkcs1_sha256
+    return 0;                                            // ECDSA / SHA-384 : non géré
+}
+
+// Vérifie la chaîne : hôte, dates, signatures, racine de confiance.
+static int verify_chain(const char *host, char *info) {
+    if (g_ncerts < 1) { setinfo(info, "aucun certificat"); return 0; }
+    uint64_t now = now_stamp();
+    x509_cert *leaf = &g_certs[0];
+    if (now < leaf->not_before || now > leaf->not_after) { setinfo(info, "certificat hors periode de validite"); return 0; }
+    if (!x509_check_host(leaf, host)) { setinfo(info, "nom d'hote non couvert par le certificat"); return 0; }
+    for (int i = 0; i < g_ncerts - 1; i++) {
+        if (!x509_dn_equal(g_certs[i].issuer, g_certs[i].issuer_len, g_certs[i+1].subject, g_certs[i+1].subject_len)) { setinfo(info, "chaine rompue (emetteur != sujet)"); return 0; }
+        if (!x509_verify_signed_by(&g_certs[i], &g_certs[i+1])) { setinfo(info, "signature de chaine invalide"); return 0; }
+    }
+    x509_cert *top = &g_certs[g_ncerts - 1];
+    for (int j = 0; j < castore_count(); j++) {
+        int rl; const uint8_t *rd = castore_der(j, &rl);
+        x509_cert root;
+        if (x509_parse(rd, rl, &root) != 0) continue;
+        if (x509_dn_equal(top->issuer, top->issuer_len, root.subject, root.subject_len) &&
+            x509_verify_signed_by(top, &root)) { setinfo(info, "certificat verifie (chaine de confiance OK)"); return 1; }
+    }
+    setinfo(info, "autorite racine inconnue (non verifie)");
+    return 0;
+}
+
 // --- Handshake ---------------------------------------------------------------
 static uint8_t recbody[18000];
 static uint8_t hsacc[20000];
 
 int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
     t->conn = conn; t->established = 0; t->eof = 0; t->rlen = t->roff = 0;
+    t->verified = 0; t->verify_info[0] = 0;
+    g_ncerts = 0;
     int dl = ms() + 12000;
     if (err) *err = 0;
+    uint8_t th_cert[32]; int have_th_cert = 0, cv_ok = 0;
 
     // 1. clés X25519 + aléas
     uint8_t rnd[96]; sys_random(rnd, 96);
@@ -323,8 +404,22 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
                 }
                 sha256_update(&th, hsacc + q, 4 + ml);      // transcript += server Finished
                 done = 1; q += 4 + ml; break;
+            } else if (mt == HS_CERT) {
+                parse_certificate(hsacc + q + 4, ml);
+                sha256_update(&th, hsacc + q, 4 + ml);
+                th_snapshot(&th, th_cert); have_th_cert = 1; // transcript CH..Certificate
+                q += 4 + ml;
+            } else if (mt == HS_CERT_VERIFY) {
+                if (have_th_cert && ml >= 4) {
+                    int scheme = (hsacc[q+4] << 8) | hsacc[q+5];
+                    int slen = (hsacc[q+6] << 8) | hsacc[q+7];
+                    if (8 + slen <= 4 + ml)
+                        cv_ok = cert_verify_sig(scheme, hsacc + q + 8, slen, th_cert);
+                }
+                sha256_update(&th, hsacc + q, 4 + ml);
+                q += 4 + ml;
             } else {
-                sha256_update(&th, hsacc + q, 4 + ml);      // EE / Cert / CertVerify
+                sha256_update(&th, hsacc + q, 4 + ml);      // EncryptedExtensions
                 q += 4 + ml;
             }
         }
@@ -348,6 +443,11 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
     uint8_t vd[32]; hmac_sha256(cfk, 32, th_sf, 32, vd);
     uint8_t fin[36]; fin[0] = HS_FINISHED; fin[1] = 0; fin[2] = 0; fin[3] = 32; memcpy(fin + 4, vd, 32);
     send_enc(conn, CT_HANDSHAKE, fin, 36, chs_key, chs_iv, &chs_seq);
+
+    // Vérification du certificat (rapportée, non bloquante) : preuve de clé
+    // (CertificateVerify) + chaîne de confiance + hôte + dates.
+    if (!cv_ok) { setinfo(t->verify_info, "preuve de cle serveur invalide/non geree"); t->verified = 0; }
+    else t->verified = verify_chain(host, t->verify_info);
 
     t->established = 1;
     return 0;

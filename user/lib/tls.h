@@ -16,6 +16,8 @@ typedef struct {
     uint8_t  cw_key[32], cw_iv[12]; uint64_t cw_seq;   // écriture application
     uint8_t  sr_key[32], sr_iv[12]; uint64_t sr_seq;   // lecture application
     int      established, eof;
+    int      verified;             // 1 = certificat vérifié (chaîne + hôte + dates)
+    char     verify_info[72];      // détail (raison si non vérifié)
     uint8_t  rbuf[20000];          // données applicatives déchiffrées
     int      rlen, roff;
 } tls_t;

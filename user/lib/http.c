@@ -43,7 +43,10 @@ static int ci_find(const char *hay, int n, const char *needle) {
     return -1;
 }
 
-static char raw[160000];                 // réponse brute (en-tête + corps)
+static char raw[160000];
+
+int  http_last_secure, http_last_verified;
+char http_last_vinfo[72];                 // réponse brute (en-tête + corps)
 
 int http_fetch(const char *url, char *body, int maxbody, int *status, const char **err) {
     if (status) *status = 0;
@@ -88,8 +91,11 @@ int http_fetch(const char *url, char *body, int maxbody, int *status, const char
 
     // --- TLS (handshake 1-RTT) si https:// -----------------------------------
     static tls_t tls;
+    http_last_secure = secure; http_last_verified = 0; http_last_vinfo[0] = 0;
     if (secure) {
         if (tls_handshake(&tls, c, host, err) != 0) { sys_tcp_close(c); return -1; }
+        http_last_verified = tls.verified;
+        for (int i = 0; i < 72; i++) { http_last_vinfo[i] = tls.verify_info[i]; if (!tls.verify_info[i]) break; }
     }
 
     // --- Requête GET ---------------------------------------------------------

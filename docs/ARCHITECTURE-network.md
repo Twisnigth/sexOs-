@@ -109,24 +109,39 @@ l'utilise automatiquement pour les URL `https://` (port 443 par défaut).
   clés applicatives. Couche d'enregistrement chiffrée (nonce = iv⊕seq, en-tête en
   données associées).
 
-**Vérifié** : en QEMU, MonOS effectue le handshake complet contre un serveur
-**TLS 1.3 réel** (OpenSSL/Python, ChaCha20-Poly1305) et récupère
-`https://10.0.2.2:8443/` — `HTTP 200`, page rendue (cf. `docs/ring3-https.png`),
-zéro panique.
+## Vérification du certificat (authentification RSA)
 
-> ⚠️ **Limite de sécurité importante** : le **certificat du serveur n'est PAS
-> vérifié** (ni signature RSA/ECDSA, ni magasin d'autorités, ni vérification du
-> nom). La session est donc **chiffrée mais NON authentifiée** : elle protège
-> contre l'écoute passive, **pas contre un homme du milieu actif**. À ne pas
-> utiliser pour des données sensibles tant que la vérification de chaîne n'est
-> pas implémentée.
+La chaîne de certificats est désormais **vérifiée** (pour les certificats RSA) :
+
+- **Grands entiers** (`bigint.c`) : exponentiation modulaire jusqu'à 4096 bits
+  (testée contre `pow()` de Python pour 1024/2048/4096 bits).
+- **RSA** (`rsa.c`) : vérification **PKCS#1 v1.5** et **PSS** (MGF1-SHA256),
+  RFC 8017 (testée contre des signatures OpenSSL/Python).
+- **X.509** (`x509.c`) : analyseur **ASN.1/DER**, extraction clé publique RSA,
+  dates, **SubjectAltName** (DNS et IP), DN ; vérification « cert signé par cert ».
+- **Magasin d'AC** (`castore.c`) : racines de confiance embarquées.
+- Dans le handshake (`tls.c`) : on vérifie le **CertificateVerify** (preuve que le
+  serveur détient la clé de la feuille, RSA-PSS sur le hachage de transcription),
+  la **chaîne** jusqu'à une racine de confiance, les **dates** et le **nom d'hôte**
+  (SAN). Le résultat est rapporté à l'application (`tls_t.verified`) et affiché par
+  le navigateur (`[TLS verifie]` / `[TLS non verifie]`).
+
+**Vérifié** : en QEMU, MonOS effectue le handshake complet contre un serveur
+**TLS 1.3 réel** (OpenSSL, certificat signé par la racine de test embarquée) et
+récupère `https://10.0.2.2:8444/` — `HTTP 200`, badge **« certificat verifie
+(chaine de confiance OK) »** (cf. `docs/ring3-https-verified.png`), zéro panique.
+
+> ℹ️ Politique actuelle : la vérification est **rapportée** (le navigateur affiche
+> l'état) mais **non bloquante** — une page non vérifiée s'affiche avec un
+> avertissement. Passer en *fail-closed* (refus si non vérifié) est trivial.
 
 ## Reste à faire (périmètre assumé)
 
-- **Vérification du certificat TLS** : nécessite RSA-PKCS1/PSS et/ou ECDSA P-256
-  (absents de Monocypher → arithmétique grands entiers à écrire), un analyseur
-  X.509/ASN.1 et un magasin d'autorités racines. C'est la prochaine étape pour
-  un HTTPS *authentifié*.
+- **ECDSA P-256** : nombre de certificats publics utilisent ECDSA (feuille et/ou
+  AC). À implémenter (arithmétique de courbe sur le corps P-256) pour couvrir le
+  web réel ; en attendant, ces certificats sont signalés « non vérifiés ».
+- **Paquet d'AC racines réel** (Mozilla, ~150 AC) au lieu de la seule racine de
+  test, pour authentifier les vrais sites.
 - **AES-GCM** : pour interopérer avec les serveurs qui n'offrent pas ChaCha20.
 - **SSH** : le serveur est encore écrit en style **bloquant** et n'a pas été
   porté sur le modèle non bloquant de la tâche réseau ; il reste donc dormant
