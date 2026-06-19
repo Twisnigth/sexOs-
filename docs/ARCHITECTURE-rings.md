@@ -82,9 +82,17 @@ Le bureau peut tourner en **plusieurs processus ring 3 distincts** reliés par I
   framebuffer + les entrées, alloue un tampon partagé (shm) par fenêtre, route
   les événements vers la fenêtre au focus, gère déplacement/focus/fermeture.
 - **Bibliothèque cliente** (`user/lib/libwin.c`) + **applications, chacune un
-  PROCESSUS** : `app_clock` (se rafraîchit via `yield`), `app_hello` (DORT sur
-  `ipc_wait` jusqu'aux événements), `app_crash` (déréférence NULL pour prouver
-  l'isolation).
+  PROCESSUS** : `app_clock` (se rafraîchit via `yield`), `app_crash` (déréférence
+  NULL pour prouver l'isolation), et surtout les **applications COMPLÈTES** :
+  - **`user/term.c`** — terminal (grille 80×24, éditeur de ligne, commandes
+    `ls/cd/pwd/cat/mkdir/touch/rm/whoami/date/sysinfo`),
+  - **`user/files.c`** — explorateur (navigation, aperçu, création/suppression).
+  Ces deux applis n'utilisent QUE des appels système : fenêtre via `libwin`
+  (IPC), système de fichiers via **`sys_vfs_*`** (par chemin, donc aucun pointeur
+  noyau partagé), comptes via `sys_whoami`, infos via `sys_sysinfo`.
+- **Récupération des fenêtres orphelines** : le compositeur interroge
+  `sys_pid_alive(owner)` ; quand un processus client meurt (crash tué, ou sortie),
+  sa fenêtre est retirée de la composition (elle ne reste plus affichée).
 
 Vérifié en QEMU (`docs/ring3-multiproc*.png`) :
 - 3 fenêtres provenant de 3 **processus séparés**, dessinées via mémoire
@@ -95,20 +103,28 @@ Vérifié en QEMU (`docs/ring3-multiproc*.png`) :
 - modèle **sans sondage actif** : les applis pilotées par les événements dorment
   (`ipc_wait`) et sont réveillées à la livraison ; commutations coopératives.
 
+### Correction d'un défaut d'architecture : course au démarrage de l'ordonnanceur
+
+`sched_start` / `sched_run_until_idle` s'exécutaient avec les interruptions
+actives. Une préemption du minuteur survenant **entre `install()` et l'`iretq`
+de reprise** faisait écraser le contexte de la 1ʳᵉ tâche par `sched_on_timer`
+(qui enregistre un cadre noyau dans `ctx`), d'où un **`#GP` intermittent sur
+`iretq`** (≈ 1 démarrage sur 2). Le handoff initial est désormais **atomique**
+(`cli`) ; l'`iretq` restaure `IF=1` dans la tâche, donc la préemption reprend
+normalement une fois en ring 3. Les autres chemins de commutation
+(`sched_on_timer`, `sched_switch_from`) sont déjà atomiques (IF=0 dans l'ISR /
+sous `FMASK`). Vérifié : **8/8 démarrages sans panique**.
+
 ## Reste à faire (honnêteté sur le périmètre)
 
-- Nettoyage automatique de la fenêtre d'une application morte (sa dernière image
-  reste affichée — c'est volontairement visible comme preuve d'isolation).
 - `wait(pid)` côté parent, priorités d'ordonnancement, IPC zéro-copie plus riche.
 - **Commandes réseau / SSH / pacman / busybox du terminal** : indisponibles dans
   le bureau ring 3 (elles dépendent de pilotes noyau) ; elles nécessiteraient des
   syscalls réseau dédiés. Stubs pour l'instant.
-- **Filesystem partagé** : le bureau a son propre VFS en mémoire (distinct de celui
-  du noyau utilisé par sshd/pacman). Les unifier demanderait une API VFS par
-  syscalls.
 - **sshd** n'est plus interrogé pendant que le bureau tourne (serait à confier à
   une tâche noyau dédiée).
-- État `brk`/`mmap_base` encore partiellement global.
+- État `brk`/`mmap_base` encore partiellement global (sans incidence : seul le
+  compositeur utilise `mmap`, une seule fois).
 
 ## Fichiers clés
 
