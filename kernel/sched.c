@@ -54,8 +54,9 @@ static task_t *alloc_slot(void) {
 }
 
 // Finalise une tâche : pile utilisateur, pile noyau, contexte initial ring 3.
+//  'code_pages' = pages physiques du binaire chargé (pour le moniteur d'activité).
 static int finish_task(task_t *t, const char *name, uint64_t pml4,
-                       uint64_t entry, uint64_t brk) {
+                       uint64_t entry, uint64_t brk, uint64_t code_pages) {
     // Pile utilisateur.
     for (uint64_t off = 0; off < USER_STACK_SZ; off += 4096) {
         uint64_t phys = pmm_alloc_page();
@@ -89,8 +90,26 @@ static int finish_task(task_t *t, const char *name, uint64_t pml4,
     t->shm_next   = 0xC0000000ULL;     // zone de mappage de la mémoire partagée
     t->mbox_head  = t->mbox_tail = 0;
     t->exit_code  = 0;
+    t->cpu_ticks  = 0;
+    // Mémoire résidente initiale : binaire + pile utilisateur + pile noyau.
+    t->mem_pages  = code_pages + (USER_STACK_SZ / 4096) + (KSTACK_SIZE / 4096);
     t->name       = name;
     return t->pid;
+}
+
+// Comptabilise des pages supplémentaires sur la tâche courante (mmap/shm/fb).
+void sched_account_pages(uint64_t pages) {
+    if (current) current->mem_pages += pages;
+}
+
+// i-ème tâche non-UNUSED (idle inclus) — pour SYS_proc_list.
+task_t *sched_task_at(int index) {
+    int n = 0;
+    for (int i = 0; i < SCHED_MAX_TASKS; i++) {
+        if (tasks[i].state == TASK_UNUSED) continue;
+        if (n++ == index) return &tasks[i];
+    }
+    return NULL;
 }
 
 task_t *sched_task_by_pid(int pid) {
@@ -106,6 +125,7 @@ int sched_new_flat_task(const char *name, const uint8_t *code, size_t len) {
     if (!pml4) return -1;
 
     // Charge le binaire « plat » à USER_LOAD_ADDR (code + données, inscriptible).
+    uint64_t code_pages = 0;
     for (uint64_t off = 0; off < len; off += 4096) {
         uint64_t phys = pmm_alloc_page();
         if (!phys) return -1;
@@ -114,8 +134,9 @@ int sched_new_flat_task(const char *name, const uint8_t *code, size_t len) {
         memset(dst, 0, 4096);
         memcpy(dst, code + off, n);
         vmm_map_page_in(pml4, USER_LOAD_ADDR + off, phys, PTE_USER | PTE_WRITE);
+        code_pages++;
     }
-    return finish_task(t, name, pml4, USER_LOAD_ADDR, 0);
+    return finish_task(t, name, pml4, USER_LOAD_ADDR, 0, code_pages);
 }
 
 int sched_new_elf_task(const char *name, const uint8_t *elf, size_t len) {
@@ -123,10 +144,10 @@ int sched_new_elf_task(const char *name, const uint8_t *elf, size_t len) {
     if (!t) return -1;
     uint64_t pml4 = vmm_new_address_space();
     if (!pml4) return -1;
-    uint64_t brk_end = 0;
-    uint64_t entry = elf_load(pml4, elf, len, &brk_end);
+    uint64_t brk_end = 0, code_pages = 0;
+    uint64_t entry = elf_load(pml4, elf, len, &brk_end, &code_pages);
     if (!entry) return -1;
-    return finish_task(t, name, pml4, entry, brk_end);
+    return finish_task(t, name, pml4, entry, brk_end, code_pages);
 }
 
 // --- Sélection round-robin (l'idle n'est choisi qu'en dernier recours) -------
@@ -182,6 +203,7 @@ static void back_to_kernel(void) {
 // --- Points d'entrée depuis le répartiteur d'interruptions -------------------
 registers_t *sched_on_timer(registers_t *r) {
     if (!active || !current) return r;
+    current->cpu_ticks++;                        // le top écoulé a servi CETTE tâche
     current->ctx = (uint64_t)r;                 // sauvegarde le point de préemption
     if (current->state == TASK_RUNNING) current->state = TASK_READY;
     task_t *n = pick_next();
@@ -245,6 +267,7 @@ static void create_idle(void) {
     f->ss = 0x10;                       // données noyau
     t->pid = 0; t->state = TASK_READY; t->pml4 = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
     t->kstack_top = ktop; t->ctx = (uint64_t)f; t->fs_base = 0; t->name = "idle";
+    t->cpu_ticks = 0; t->mem_pages = sizeof(idle_stack) / 4096;
     idle_task = t;
 }
 

@@ -16,7 +16,14 @@ Clavier en **AZERTY**. Souris/clavier émulés en **PS/2** (pas de pile USB) :
 en cas de souris inerte, c'est que l'hyperviseur a présenté un pointeur USB.
 
 ## Ce que contient cette image
-Bureau graphique (fenêtres, login, explorateur, paramètres) **plus** :
+**Bureau multi-processus en ring 3** : le compositeur et chaque application sont
+des **processus ring 3 isolés** reliés par IPC (messagerie + mémoire partagée).
+Au démarrage : compositeur, **terminal**, **explorateur de fichiers**,
+**moniteur d'activité (style btop)** et horloge. Un crash d'application est
+contenu par le noyau (la tâche fautive est tuée, sa fenêtre récupérée, le reste
+du système continue).
+
+Côté noyau (exécuté au démarrage), l'image embarque aussi :
 - **Réseau** (e1000 + DHCP/DNS) : `ifconfig`, `ping`, `nslookup`, `wget`.
 - **SSH** client et serveur : `ssh hôte user motdepasse "commande"`.
 - **Binaires Linux** statiques en ring 3 : `bb <applet>` (busybox musl).

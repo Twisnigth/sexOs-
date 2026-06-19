@@ -68,5 +68,6 @@ static inline void sys_whoami(userinfo_t *u)    { _sc1(SYS_whoami, (long)u); }
 static inline int  sys_can_write(const char *p) { return (int)_sc1(SYS_can_write, (long)p); }
 static inline void sys_rtc(void *t)             { _sc1(SYS_rtc_now, (long)t); }
 static inline void sys_sysinfo(void *s)         { _sc1(SYS_sysinfo, (long)s); }
+static inline int  sys_proc_list(int i, procinfo_t *p) { return (int)_sc2(SYS_proc_list, i, (long)p); }
 
 #endif

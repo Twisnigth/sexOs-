@@ -34,6 +34,7 @@
 #define SYS_time_ms     0x250      // millisecondes depuis le démarrage
 #define SYS_rtc_now     0x251      // remplit rtc_time_t (date/heure CMOS)
 #define SYS_sysinfo     0x252      // remplit sysinfo_t (mémoire, uptime, PCI)
+#define SYS_proc_list   0x253      // (index, *procinfo) -> 1=rempli / 0=au-delà
 
 // --- Système -----------------------------------------------------------------
 #define SYS_reboot      0x260      // redémarre la machine
@@ -64,5 +65,15 @@ typedef struct {
 typedef struct {
     uint32_t mem_total_mb, mem_used_mb, uptime_s, pci_count;
 } sysinfo_t;
+
+// Une entrée de la table des processus (SYS_proc_list), pour le moniteur d'activité.
+//  state : 1=prêt 2=actif 3=bloqué 4=zombie (cf. task_state_t côté noyau).
+typedef struct {
+    int      pid;
+    int      state;
+    uint64_t cpu_ticks;        // tops du minuteur cumulés sur cette tâche
+    uint64_t mem_kb;           // mémoire résidente approximative (Kio)
+    char     name[32];
+} procinfo_t;
 
 #endif

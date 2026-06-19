@@ -29,6 +29,8 @@ global uterm_start
 global uterm_end
 global ufiles_start
 global ufiles_end
+global umon_start
+global umon_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -54,5 +56,7 @@ uterm_start:        incbin "build/obj/term.elf"
 uterm_end:
 ufiles_start:       incbin "build/obj/files.elf"
 ufiles_end:
+umon_start:         incbin "build/obj/monitor.elf"
+umon_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits

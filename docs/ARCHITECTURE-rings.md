@@ -87,9 +87,19 @@ Le bureau peut tourner en **plusieurs processus ring 3 distincts** reliés par I
   - **`user/term.c`** — terminal (grille 80×24, éditeur de ligne, commandes
     `ls/cd/pwd/cat/mkdir/touch/rm/whoami/date/sysinfo`),
   - **`user/files.c`** — explorateur (navigation, aperçu, création/suppression).
-  Ces deux applis n'utilisent QUE des appels système : fenêtre via `libwin`
-  (IPC), système de fichiers via **`sys_vfs_*`** (par chemin, donc aucun pointeur
-  noyau partagé), comptes via `sys_whoami`, infos via `sys_sysinfo`.
+  - **`user/monitor.c`** — **moniteur d'activité (style btop)** : jauge CPU +
+    historique, jauge mémoire, et **table des processus** (PID, nom, état, %CPU,
+    mémoire) triée par charge. Le %CPU vient des **tops du minuteur attribués à
+    chaque tâche** par l'ordonnanceur (`task_t.cpu_ticks`, idle = pid 0) ; la
+    mémoire d'un processus est comptabilisée à l'allocation (`task_t.mem_pages` :
+    image + piles + `mmap`/`shm`/framebuffer). Exposés par **`sys_proc_list`**.
+  Ces applis n'utilisent QUE des appels système : fenêtre via `libwin` (IPC),
+  système de fichiers via **`sys_vfs_*`** (par chemin, donc aucun pointeur noyau
+  partagé), comptes via `sys_whoami`, infos via `sys_sysinfo` / `sys_proc_list`.
+  Le moniteur illustre concrètement le modèle : le **compositeur** consomme le
+  plus de CPU (recomposition à chaque trame), tandis que le terminal et
+  l'explorateur, **bloqués sur `ipc_wait`**, sont à **0 %** (état « dort ») —
+  preuve visible que l'IPC bloquante évite le sondage actif.
 - **Récupération des fenêtres orphelines** : le compositeur interroge
   `sys_pid_alive(owner)` ; quand un processus client meurt (crash tué, ou sortie),
   sa fenêtre est retirée de la composition (elle ne reste plus affichée).

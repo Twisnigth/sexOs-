@@ -226,6 +226,7 @@ void kmain(void) {
         extern uint8_t uclock_start[], uclock_end[];
         extern uint8_t uterm_start[], uterm_end[];
         extern uint8_t ufiles_start[], ufiles_end[];
+        extern uint8_t umon_start[], umon_end[];
         extern uint8_t ucrash_start[], ucrash_end[];
         kprintf("[boot] lancement du compositeur + applications (ring 3, IPC)\n");
         //  Chaque programme est un PROCESSUS ring 3 distinct (espace d'adressage
@@ -239,6 +240,7 @@ void kmain(void) {
         sched_new_elf_task("explorateur", ufiles_start, (size_t)(ufiles_end - ufiles_start));
         sched_new_elf_task("horloge", uclock_start, (size_t)(uclock_end - uclock_start));
         sched_new_elf_task("crash", ucrash_start, (size_t)(ucrash_end - ucrash_start));
+        sched_new_elf_task("moniteur", umon_start, (size_t)(umon_end - umon_start));
     }
     sched_start();                          // ne revient jamais
 

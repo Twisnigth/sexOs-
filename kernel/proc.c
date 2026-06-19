@@ -187,6 +187,7 @@ long syscall_dispatch(sysargs_t *a) {
             uint64_t p = pmm_alloc_page(); if (!p) return -12;   // -ENOMEM
             vmm_map_page_in(aspace, base + off, p, PTE_USER | PTE_WRITE);
         }
+        sched_account_pages(len / 4096);
         return base;
     }
     case SYS_arch_prctl:
@@ -240,6 +241,7 @@ long syscall_dispatch(sysargs_t *a) {
         for (uint64_t off = 0; off < bytes; off += 4096)
             vmm_map_page_in(cur, va + off, phys + off, PTE_USER | PTE_WRITE | PTE_PWT);
         if (fi) { fi->addr = va; fi->width = fb_width(); fi->height = h; fi->pitch = pitch; }
+        sched_account_pages(bytes / 4096);   // framebuffer mappé chez le compositeur
         return 0;
     }
     case SYS_input_poll: {
@@ -306,6 +308,7 @@ long syscall_dispatch(sysargs_t *a) {
         }
         uint64_t va = shm_map_into(sched_current(), &shms[id]);
         if (a->rsi) *(uint64_t *)a->rsi = va;
+        sched_account_pages((uint64_t)np);   // mémoire partagée attribuée au créateur
         return id;
     }
     case SYS_shm_map: {
@@ -320,6 +323,20 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_comp_pid:
         return compositor_pid;
+    case SYS_proc_list: {
+        task_t *t = sched_task_at((int)a->rdi);
+        if (!t) return 0;
+        procinfo_t *pi = (procinfo_t *)a->rsi;
+        if (pi) {
+            pi->pid       = t->pid;
+            pi->state     = (int)t->state;
+            pi->cpu_ticks = t->cpu_ticks;
+            pi->mem_kb    = t->mem_pages * 4;
+            const char *nm = t->name ? t->name : "?";
+            int i = 0; for (; nm[i] && i < 31; i++) pi->name[i] = nm[i]; pi->name[i] = 0;
+        }
+        return 1;
+    }
     case SYS_pid_alive: {
         task_t *t = sched_task_by_pid((int)a->rdi);
         return (t && t->state != TASK_UNUSED && t->state != TASK_ZOMBIE) ? 1 : 0;
@@ -437,7 +454,7 @@ int proc_run(const void *elf, size_t len, int argc, const char **argv) {
     uint64_t pml4 = vmm_new_address_space();
     if (!pml4) return -1;
     uint64_t brk_end = 0;
-    uint64_t entry = elf_load(pml4, (const uint8_t *)elf, len, &brk_end);
+    uint64_t entry = elf_load(pml4, (const uint8_t *)elf, len, &brk_end, NULL);
     if (!entry) { kprintf("[proc] ELF invalide\n"); return -1; }
 
     // Pile utilisateur.

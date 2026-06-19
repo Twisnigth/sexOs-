@@ -36,11 +36,17 @@ typedef struct task {
     ipc_msg_t    mbox[IPC_MBOX_LEN];
     int          mbox_head, mbox_tail;
     int          exit_code;
+    uint64_t     cpu_ticks;     // tops du minuteur passés à exécuter CETTE tâche
+    uint64_t     mem_pages;     // pages physiques attribuées (approx., pour le moniteur)
     const char  *name;
 } task_t;
 
 // IPC : recherche d'une tâche par pid (pour la livraison de messages).
 task_t *sched_task_by_pid(int pid);
+// Moniteur d'activité : renvoie la i-ème tâche non-UNUSED (ou NULL au-delà).
+task_t *sched_task_at(int index);
+// Comptabilise des pages allouées à la tâche courante (mmap/shm/framebuffer...).
+void    sched_account_pages(uint64_t pages);
 
 // La tâche courante a changé d'état (BLOCKED/READY/ZOMBIE) et son contexte est
 // déjà sauvegardé dans 'r' : choisit la tâche suivante et renvoie son contexte.
