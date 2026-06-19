@@ -17,6 +17,17 @@ static struct {
 
 void udp_listen(uint16_t port) { waiter.port = port; waiter.ready = false; }
 
+// Récupération NON BLOQUANTE d'un datagramme reçu sur 'port' (pour le DNS async
+// piloté par la tâche réseau). Renvoie false si rien n'est disponible.
+bool udp_take(uint16_t port, ip4_t *src, uint8_t **data, int *len) {
+    if (!waiter.ready || waiter.port != port) return false;
+    if (src)  *src = waiter.src;
+    if (data) *data = waiter.buf;
+    if (len)  *len = waiter.len;
+    waiter.ready = false;
+    return true;
+}
+
 bool udp_wait(uint32_t timeout_ms, ip4_t *src, uint8_t **data, int *len) {
     uint64_t end = pit_ms() + timeout_ms;
     while (pit_ms() < end) {

@@ -59,6 +59,9 @@ void sched_wake(task_t *t);
 int  sched_new_flat_task(const char *name, const uint8_t *code, size_t len);
 // Crée une tâche ring 3 à partir d'un exécutable ELF64 statique.
 int  sched_new_elf_task(const char *name, const uint8_t *elf, size_t len);
+// Crée une tâche NOYAU (ring 0) qui exécute fn() ; utile pour les services
+// internes ordonnancés (ex. la pile réseau qui pompe le NIC en continu).
+int  sched_new_kernel_task(const char *name, void (*fn)(void));
 
 // Lance l'ordonnanceur et exécute les tâches prêtes ; revient à l'appelant
 // quand il n'y a plus AUCUNE tâche prête (mode démo de la Phase 1).

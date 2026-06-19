@@ -19,9 +19,17 @@ en cas de souris inerte, c'est que l'hyperviseur a présenté un pointeur USB.
 **Bureau multi-processus en ring 3** : le compositeur et chaque application sont
 des **processus ring 3 isolés** reliés par IPC (messagerie + mémoire partagée).
 Au démarrage : compositeur, **terminal**, **explorateur de fichiers**,
-**moniteur d'activité (style btop)** et horloge. Un crash d'application est
-contenu par le noyau (la tâche fautive est tuée, sa fenêtre récupérée, le reste
-du système continue).
+**moniteur d'activité (style btop)**, **navigateur web** et horloge. Un crash
+d'application est contenu par le noyau (la tâche fautive est tuée, sa fenêtre
+récupérée, le reste du système continue).
+
+**Navigateur web (HTTP)** : `user/web.c` récupère des pages via une vraie pile
+réseau (DNS + TCP + HTTP/1.1) au moyen de **sockets non bloquantes** servies par
+une tâche réseau du noyau. Pour l'essayer en QEMU :
+1. sur l'hôte, servez un dossier : `python3 -m http.server 8000` ;
+2. lancez MonOS avec le réseau : `make run-net` ;
+3. dans le navigateur, l'adresse `http://10.0.2.2:8000/` pointe vers l'hôte
+   (passerelle SLIRP). HTTPS/TLS n'est pas encore supporté.
 
 Côté noyau (exécuté au démarrage), l'image embarque aussi :
 - **Réseau** (e1000 + DHCP/DNS) : `ifconfig`, `ping`, `nslookup`, `wget`.

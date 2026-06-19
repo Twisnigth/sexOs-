@@ -132,6 +132,9 @@ $(OBJDIR)/files.elf: $(OBJDIR)/u_files.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_files.o $(APPLIBS)
 $(OBJDIR)/monitor.elf: $(OBJDIR)/u_monitor.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_monitor.o $(APPLIBS)
+# Navigateur web : client compositeur + pile réseau (HTTP en espace utilisateur).
+$(OBJDIR)/web.elf: $(OBJDIR)/u_web.o $(OBJDIR)/u_http.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_web.o $(OBJDIR)/u_http.o $(APPLIBS)
 
 # user_blobs.asm incbin les binaires : dépendance explicite (prioritaire sur le
 # motif générique ci-dessus).
@@ -140,7 +143,7 @@ $(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
                             $(OBJDIR)/compositor.elf $(OBJDIR)/app_clock.elf \
                             $(OBJDIR)/app_hello.elf $(OBJDIR)/app_crash.elf \
                             $(OBJDIR)/term.elf $(OBJDIR)/files.elf \
-                            $(OBJDIR)/monitor.elf
+                            $(OBJDIR)/monitor.elf $(OBJDIR)/web.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

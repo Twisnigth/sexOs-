@@ -227,20 +227,24 @@ void kmain(void) {
         extern uint8_t uterm_start[], uterm_end[];
         extern uint8_t ufiles_start[], ufiles_end[];
         extern uint8_t umon_start[], umon_end[];
-        extern uint8_t ucrash_start[], ucrash_end[];
+        extern uint8_t uweb_start[], uweb_end[];
         kprintf("[boot] lancement du compositeur + applications (ring 3, IPC)\n");
+        // Service réseau : tâche NOYAU qui pompe le NIC et fait avancer TCP/DNS
+        // (le NIC n'est plus jamais sondé ailleurs après le démarrage).
+        if (nic_present()) sched_new_kernel_task("reseau", net_task_run);
         //  Chaque programme est un PROCESSUS ring 3 distinct (espace d'adressage
         //  propre) relié au compositeur par messagerie + mémoire partagée :
         //   - compositeur : possède le framebuffer et route les entrées,
         //   - terminal/explorateur : applications COMPLÈTES (VFS via syscalls),
-        //   - horloge : se rafraîchit seule (preuve de concurrence),
-        //   - crash : faute volontaire (preuve d'isolation : le noyau la tue).
+        //   - moniteur : supervision système (CPU/mémoire/processus),
+        //   - navigateur : client HTTP (sockets non bloquantes via la tâche réseau),
+        //   - horloge : se rafraîchit seule (preuve de concurrence).
         sched_new_elf_task("compositeur", ucomp_start, (size_t)(ucomp_end - ucomp_start));
         sched_new_elf_task("terminal", uterm_start, (size_t)(uterm_end - uterm_start));
         sched_new_elf_task("explorateur", ufiles_start, (size_t)(ufiles_end - ufiles_start));
         sched_new_elf_task("horloge", uclock_start, (size_t)(uclock_end - uclock_start));
-        sched_new_elf_task("crash", ucrash_start, (size_t)(ucrash_end - ucrash_start));
         sched_new_elf_task("moniteur", umon_start, (size_t)(umon_end - umon_start));
+        sched_new_elf_task("navigateur", uweb_start, (size_t)(uweb_end - uweb_start));
     }
     sched_start();                          // ne revient jamais
 

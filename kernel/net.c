@@ -121,3 +121,32 @@ bool arp_resolve(ip4_t ip, mac_t *out) {
     }
     return false;
 }
+
+// ARP non bloquant (cf. net.h) : pour le chemin d'émission de la tâche réseau,
+// qui ne doit jamais attendre activement (le minuteur est masqué pendant son
+// traitement). Sur défaut de cache, on émet une requête et on laisse la
+// retransmission TCP/DNS rejouer la trame une fois le MAC appris.
+bool arp_lookup(ip4_t ip, mac_t *out) {
+    if (arp_cache_get(ip, out)) return true;
+    arp_send(1, MAC_BCAST, ip);
+    return false;
+}
+
+// =============================================================================
+//  Tâche réseau : pompe le NIC et fait avancer les protocoles, sur minuteur.
+// -----------------------------------------------------------------------------
+//  Tâche NOYAU ordonnancée (ring 0, IF=1). Le traitement réseau s'exécute en
+//  section critique (cli) : ainsi il ne s'entrelace jamais avec un appel système
+//  socket (qui s'exécute lui aussi IF=0). NIC, TCP et DNS sont donc sérialisés.
+//  hlt rend la main jusqu'au prochain top du minuteur (~1 ms).
+// =============================================================================
+void net_task_run(void) {
+    for (;;) {
+        __asm__ volatile ("cli");
+        nic_poll();          // RX : ARP/IP/ICMP/UDP/TCP -> tampons & machines d'état
+        tcp_tick();          // (re)transmissions et délais TCP
+        dns_tick();          // (re)transmissions et délai DNS
+        __asm__ volatile ("sti");
+        __asm__ volatile ("hlt");
+    }
+}

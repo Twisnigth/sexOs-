@@ -33,7 +33,11 @@ void ipv4_send(ip4_t dst, uint8_t proto, const void *payload, uint16_t len) {
     }
     ip4_t nexthop = ((dst & netif.mask) == (netif.ip & netif.mask)) ? dst : netif.gateway;
     mac_t mac;
-    if (!arp_resolve(nexthop, &mac)) return;
+    // ARP NON bloquant : sur défaut de cache, la trame est abandonnée (une
+    // requête ARP est émise) ; TCP/DNS la rejoueront via leur retransmission.
+    // Indispensable : la tâche réseau émet avec le minuteur masqué et ne peut
+    // donc pas attendre activement la réponse ARP.
+    if (!arp_lookup(nexthop, &mac)) return;
     eth_send(mac, ETH_IPV4, pkt, total);
 }
 

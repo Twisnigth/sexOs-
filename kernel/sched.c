@@ -150,6 +150,34 @@ int sched_new_elf_task(const char *name, const uint8_t *elf, size_t len) {
     return finish_task(t, name, pml4, entry, brk_end, code_pages);
 }
 
+// Crée une tâche NOYAU ring 0 (cs=0x08) qui démarre sur fn(). Elle partage
+// l'espace d'adressage du noyau et s'exécute avec les interruptions activées.
+int sched_new_kernel_task(const char *name, void (*fn)(void)) {
+    task_t *t = alloc_slot();
+    if (!t) return -1;
+    uint8_t *kstack = (uint8_t *)kmalloc(KSTACK_SIZE);
+    if (!kstack) return -1;
+    uint64_t ktop = ((uint64_t)kstack + KSTACK_SIZE) & ~0xFULL;
+    registers_t *f = (registers_t *)(ktop - sizeof(registers_t));
+    memset(f, 0, sizeof(*f));
+    f->rip = (uint64_t)fn;
+    f->cs = 0x08;                       // code noyau
+    f->rflags = 0x202;                  // IF=1
+    f->rsp = ktop - 256;
+    f->ss = 0x10;                       // données noyau
+    t->pid        = next_pid++;
+    t->state      = TASK_READY;
+    t->pml4       = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;  // espace noyau
+    t->kstack     = (uint64_t)kstack;
+    t->kstack_top = ktop;
+    t->ctx        = (uint64_t)f;
+    t->fs_base    = 0;
+    t->cpu_ticks  = 0;
+    t->mem_pages  = KSTACK_SIZE / 4096;
+    t->name       = name;
+    return t->pid;
+}
+
 // --- Sélection round-robin (l'idle n'est choisi qu'en dernier recours) -------
 static task_t *pick_next(void) {
     for (int i = 0; i < SCHED_MAX_TASKS; i++) {

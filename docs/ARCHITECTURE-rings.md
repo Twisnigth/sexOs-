@@ -87,6 +87,9 @@ Le bureau peut tourner en **plusieurs processus ring 3 distincts** reliés par I
   - **`user/term.c`** — terminal (grille 80×24, éditeur de ligne, commandes
     `ls/cd/pwd/cat/mkdir/touch/rm/whoami/date/sysinfo`),
   - **`user/files.c`** — explorateur (navigation, aperçu, création/suppression).
+  - **`user/web.c`** — **navigateur web** : client HTTP/1.1 (barre d'adresse,
+    rendu HTML simplifié, défilement) au-dessus de **sockets TCP non bloquantes**
+    et d'une **tâche réseau** noyau (cf. `docs/ARCHITECTURE-network.md`).
   - **`user/monitor.c`** — **moniteur d'activité (style btop)** : jauge CPU +
     historique, jauge mémoire, et **table des processus** (PID, nom, état, %CPU,
     mémoire) triée par charge. Le %CPU vient des **tops du minuteur attribués à

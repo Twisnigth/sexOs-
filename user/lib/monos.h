@@ -70,4 +70,13 @@ static inline void sys_rtc(void *t)             { _sc1(SYS_rtc_now, (long)t); }
 static inline void sys_sysinfo(void *s)         { _sc1(SYS_sysinfo, (long)s); }
 static inline int  sys_proc_list(int i, procinfo_t *p) { return (int)_sc2(SYS_proc_list, i, (long)p); }
 
+// --- Réseau : sockets TCP non bloquantes + DNS -------------------------------
+static inline void sys_net_info(netinfo_t *ni)          { _sc1(SYS_net_info, (long)ni); }
+static inline int  sys_dns_resolve(const char *n, uint32_t *ip) { return (int)_sc2(SYS_dns_resolve, (long)n, (long)ip); }
+static inline int  sys_tcp_open(uint32_t ip, int port)  { return (int)_sc2(SYS_tcp_open, (long)ip, port); }
+static inline int  sys_tcp_state(int id)                { return (int)_sc1(SYS_tcp_state, id); }
+static inline int  sys_tcp_send(int id, const void *b, int n) { return (int)_sc3(SYS_tcp_send, id, (long)b, n); }
+static inline int  sys_tcp_recv(int id, void *b, int n) { return (int)_sc3(SYS_tcp_recv, id, (long)b, n); }
+static inline void sys_tcp_close(int id)                { _sc1(SYS_tcp_close, id); }
+
 #endif

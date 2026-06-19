@@ -22,6 +22,7 @@
 #include "io.h"
 #include "vfs.h"
 #include "users.h"
+#include "net.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -268,6 +269,31 @@ long syscall_dispatch(sysargs_t *a) {
     case SYS_reboot:
         outb(0x64, 0xFE);
         return 0;
+    // --- Réseau : sockets TCP non bloquantes + DNS (navigateur ring 3) -------
+    case SYS_net_info: {
+        netinfo_t *ni = (netinfo_t *)a->rdi;
+        if (ni) {
+            ni->ip = netif.ip; ni->mask = netif.mask;
+            ni->gateway = netif.gateway; ni->dns = netif.dns;
+            ni->up = netif.up ? 1 : 0;
+        }
+        return 0;
+    }
+    case SYS_dns_resolve: {
+        char name[128];
+        const char *src = (const char *)a->rdi;
+        int i = 0; if (src) for (; src[i] && i < 127; i++) name[i] = src[i];
+        name[i] = 0;
+        ip4_t ip = 0;
+        int r = dns_query(name, &ip);
+        if (r == 1 && a->rsi) *(uint32_t *)a->rsi = ip;
+        return r;
+    }
+    case SYS_tcp_open:   return tcp_open((ip4_t)a->rdi, (uint16_t)a->rsi);
+    case SYS_tcp_state:  return tcp_state((int)a->rdi);
+    case SYS_tcp_send:   return tcp_write((int)a->rdi, (const void *)a->rsi, (int)a->rdx);
+    case SYS_tcp_recv:   return tcp_read((int)a->rdi, (void *)a->rsi, (int)a->rdx);
+    case SYS_tcp_close:  tcp_shutdown((int)a->rdi); return 0;
     // --- IPC -----------------------------------------------------------------
     case SYS_ipc_send: {
         task_t *dst = sched_task_by_pid((int)a->rdi);

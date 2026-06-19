@@ -55,6 +55,9 @@ void eth_send(mac_t dst, uint16_t ethertype, const void *payload, uint16_t len);
 
 // ARP : résout une IP en MAC (avec attente bornée). Renvoie false sur timeout.
 bool arp_resolve(ip4_t ip, mac_t *out);
+// ARP NON BLOQUANT : renvoie le MAC si en cache, sinon émet une requête et
+// renvoie false (l'appelant laissera la retransmission rejouer la trame).
+bool arp_lookup(ip4_t ip, mac_t *out);
 void arp_rx(const uint8_t *data, uint16_t len);
 
 // IPv4 / ICMP / UDP / TCP
@@ -68,6 +71,7 @@ void tcp_rx(ip4_t src, const uint8_t *data, uint16_t len);
 void udp_send(ip4_t dst, uint16_t sport, uint16_t dport, const void *payload, uint16_t len);
 void udp_listen(uint16_t port);
 bool udp_wait(uint32_t timeout_ms, ip4_t *src, uint8_t **data, int *len);
+bool udp_take(uint16_t port, ip4_t *src, uint8_t **data, int *len);   // non bloquant
 
 // TCP (API sockets minimale)
 int  tcp_connect(ip4_t dst, uint16_t dport);     // renvoie un id de connexion, -1 si échec
@@ -92,5 +96,27 @@ void ip_to_str(ip4_t ip, char *buf);
 
 // Polling avec délai (traite le réseau pendant ~ms millisecondes).
 void net_poll_ms(uint32_t ms);
+
+// =============================================================================
+//  SERVICE RÉSEAU + SOCKETS NON BLOQUANTES (modèle multi-processus ring 3)
+// -----------------------------------------------------------------------------
+//  La tâche réseau (net_task_run) est le SEUL propriétaire du NIC après le
+//  démarrage : elle pompe les trames reçues et fait avancer TCP/DNS sur minuteur.
+//  Les applications ring 3 utilisent l'API NON BLOQUANTE ci-dessous via des
+//  appels système : aucune ne bloque le système, aucune ne sonde le NIC.
+// =============================================================================
+void net_task_run(void);                 // boucle de la tâche réseau (ne revient pas)
+void tcp_tick(void);                     // retransmissions / délais (appelée par la tâche)
+void dns_tick(void);                     // idem pour les requêtes DNS
+
+// TCP client non bloquant.
+int  tcp_open(ip4_t dst, uint16_t dport);    // ouverture active -> id (>=0) ou -1
+int  tcp_state(int id);                      // 0=connexion 1=etabli 2=ferme(pair) -1=erreur
+int  tcp_write(int id, const void *data, int len);  // bufferise -> octets acceptés / -1
+int  tcp_read(int id, void *buf, int len);          // -> octets / 0=rien / -1=fermé
+void tcp_shutdown(int id);                   // demande la fermeture (FIN)
+
+// DNS non bloquant : 1=résolu (*out), 0=en cours, -1=échec. Relance si 'name' change.
+int  dns_query(const char *name, ip4_t *out);
 
 #endif

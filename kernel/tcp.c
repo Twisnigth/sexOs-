@@ -19,7 +19,9 @@ enum { ST_CLOSED, ST_SYN_SENT, ST_SYN_RCVD, ST_ESTABLISHED, ST_CLOSE_WAIT };
 
 #define MAX_CONN 8
 #define MAX_LISTEN 4
-#define RXBUF 16384
+#define RXBUF 32768
+#define TXBUF 8192
+#define TCP_MSS 1400
 
 typedef struct {
     bool     used;
@@ -32,6 +34,15 @@ typedef struct {
     bool     fin;
     bool     passive;        // connexion issue d'un listen
     bool     accepted;       // déjà remise à l'application
+    // --- pilotage NON BLOQUANT (géré par tcp_tick dans la tâche réseau) -------
+    bool     nb;             // ouverture non bloquante (sockets ring 3)
+    bool     reset;          // RST reçu / erreur fatale
+    bool     want_close;     // l'application a demandé la fermeture
+    bool     fin_sent;       // notre FIN a été émis
+    uint8_t  tx[TXBUF];      // données en attente d'ACK (commencent à snd_una)
+    int      txlen;
+    uint64_t rexmit_at;      // prochaine échéance de (ré)émission
+    int      attempts;       // tentatives consécutives
 } conn_t;
 
 static conn_t conns[MAX_CONN];
@@ -62,15 +73,18 @@ static uint16_t tcp_checksum(ip4_t src, ip4_t dst, const uint8_t *seg, int len) 
     return net_checksum(tmp, o);
 }
 
-static void tcp_out(conn_t *c, uint8_t flags, const uint8_t *data, int dlen) {
+// Émet un segment avec un numéro de séquence explicite (pour la retransmission
+// depuis snd_una). La fenêtre annoncée reflète la place libre du tampon RX.
+static void tcp_send_seg(conn_t *c, uint8_t flags, uint32_t seq, const uint8_t *data, int dlen) {
     uint8_t seg[1600];
     seg[0]=c->lport>>8; seg[1]=c->lport&0xFF;
     seg[2]=c->rport>>8; seg[3]=c->rport&0xFF;
-    seg[4]=c->snd_nxt>>24; seg[5]=c->snd_nxt>>16; seg[6]=c->snd_nxt>>8; seg[7]=c->snd_nxt;
+    seg[4]=seq>>24; seg[5]=seq>>16; seg[6]=seq>>8; seg[7]=seq;
     seg[8]=c->rcv_nxt>>24; seg[9]=c->rcv_nxt>>16; seg[10]=c->rcv_nxt>>8; seg[11]=c->rcv_nxt;
     seg[12]=0x50;                     // data offset 5 (20 octets), pas d'options
     seg[13]=flags;
-    seg[14]=0x20; seg[15]=0x00;       // window 8192
+    int win = RXBUF - c->rxlen; if (win < 0) win = 0; if (win > 65535) win = 65535;
+    seg[14]=win>>8; seg[15]=win&0xFF; // fenêtre de réception réelle (flow control)
     seg[16]=0; seg[17]=0;             // checksum
     seg[18]=0; seg[19]=0;             // urgent ptr
     if (dlen) memcpy(seg + 20, data, dlen);
@@ -78,6 +92,10 @@ static void tcp_out(conn_t *c, uint8_t flags, const uint8_t *data, int dlen) {
     uint16_t cs = tcp_checksum(netif.ip, c->rip, seg, total);
     seg[16]=cs>>8; seg[17]=cs&0xFF;
     ipv4_send(c->rip, IP_TCP, seg, total);
+}
+
+static void tcp_out(conn_t *c, uint8_t flags, const uint8_t *data, int dlen) {
+    tcp_send_seg(c, flags, c->snd_nxt, data, dlen);
 }
 
 void tcp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
@@ -107,7 +125,7 @@ void tcp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
     }
     if (!c) return;
 
-    if (flags & TCP_RST) { c->state = ST_CLOSED; c->fin = true; return; }
+    if (flags & TCP_RST) { c->state = ST_CLOSED; c->fin = true; c->reset = true; return; }
 
     if (c->state == ST_SYN_RCVD && (flags & TCP_ACK)) {
         c->snd_una = ack;
@@ -120,12 +138,25 @@ void tcp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
         c->snd_una = ack;
         c->snd_nxt = ack;             // notre SYN consommé
         c->state = ST_ESTABLISHED;
+        c->attempts = 0; c->rexmit_at = 0;   // (nb) émettre les données au plus tôt
         tcp_out(c, TCP_ACK, NULL, 0);
         return;
     }
 
     if (c->state == ST_ESTABLISHED || c->state == ST_CLOSE_WAIT) {
-        if (flags & TCP_ACK) c->snd_una = ack;
+        if (flags & TCP_ACK) {
+            uint32_t acked = ack - c->snd_una;
+            if ((int32_t)acked > 0) {
+                c->snd_una = ack;
+                // (nb) libère du tampon d'émission les octets acquittés.
+                if (c->nb && c->txlen > 0) {
+                    int n = (int)acked; if (n > c->txlen) n = c->txlen;
+                    memmove(c->tx, c->tx + n, c->txlen - n);
+                    c->txlen -= n;
+                    c->attempts = 0; c->rexmit_at = pit_ms() + 600;
+                }
+            }
+        }
         int plen = len - doff;
         if (plen > 0 && seq == c->rcv_nxt) {
             if (c->rxlen + plen > RXBUF) plen = RXBUF - c->rxlen;
@@ -227,6 +258,113 @@ void tcp_close(int conn) {
         c->snd_nxt++;
     }
     c->used = false;
+}
+
+// =============================================================================
+//  API SOCKETS NON BLOQUANTE (appelée depuis les syscalls, IF=0)
+// -----------------------------------------------------------------------------
+//  Ces fonctions ne touchent JAMAIS le NIC ni le minuteur : elles ne font que
+//  manipuler l'état/les tampons des connexions. Toute l'émission est faite par
+//  tcp_tick(), exécutée dans la tâche réseau. Les deux s'excluent (IF=0).
+// =============================================================================
+int tcp_open(ip4_t dst, uint16_t dport) {
+    int idx = -1;
+    for (int i = 0; i < MAX_CONN; i++) if (!conns[i].used) { idx = i; break; }
+    if (idx < 0) return -1;
+    conn_t *c = &conns[idx];
+    memset(c, 0, sizeof(*c));
+    c->used = true; c->nb = true; c->state = ST_SYN_SENT;
+    c->rip = dst; c->rport = dport; c->lport = next_port++;
+    c->snd_nxt = isn_counter += 0x1000;
+    c->snd_una = c->snd_nxt;
+    c->rexmit_at = 0; c->attempts = 0;   // SYN émis au prochain tick
+    return idx;
+}
+
+int tcp_state(int id) {
+    if (id < 0 || id >= MAX_CONN || !conns[id].used) return -1;
+    conn_t *c = &conns[id];
+    if (c->reset) return -1;
+    if (c->state == ST_SYN_SENT || c->state == ST_SYN_RCVD) return 0;
+    if (c->state == ST_ESTABLISHED) return 1;
+    return 2;                            // CLOSE_WAIT / CLOSED : le pair a fermé
+}
+
+int tcp_write(int id, const void *data, int len) {
+    if (id < 0 || id >= MAX_CONN || !conns[id].used) return -1;
+    conn_t *c = &conns[id];
+    if (c->reset) return -1;
+    if (c->state != ST_ESTABLISHED) return 0;     // pas encore prêt -> réessayer
+    int space = TXBUF - c->txlen;
+    if (len > space) len = space;
+    if (len <= 0) return 0;
+    memcpy(c->tx + c->txlen, data, len);
+    c->txlen += len;
+    c->rexmit_at = 0;                              // émettre au prochain tick
+    return len;
+}
+
+int tcp_read(int id, void *buf, int len) {
+    if (id < 0 || id >= MAX_CONN || !conns[id].used) return -1;
+    conn_t *c = &conns[id];
+    if (c->rxlen > 0) {
+        int n = c->rxlen < len ? c->rxlen : len;
+        memcpy(buf, c->rx, n);
+        memmove(c->rx, c->rx + n, c->rxlen - n);
+        c->rxlen -= n;
+        return n;
+    }
+    if (c->reset) return -1;
+    if (c->fin) return -1;               // pair fermé et tampon vidé -> fin de flux
+    return 0;                            // rien pour l'instant
+}
+
+void tcp_shutdown(int id) {
+    if (id < 0 || id >= MAX_CONN || !conns[id].used) return;
+    conns[id].want_close = true;
+    conns[id].rexmit_at = 0;
+}
+
+// Retransmissions / timeouts / émission différée. Appelée par la tâche réseau.
+void tcp_tick(void) {
+    uint64_t now = pit_ms();
+    for (int i = 0; i < MAX_CONN; i++) {
+        conn_t *c = &conns[i];
+        if (!c->used || !c->nb) continue;
+
+        if (c->state == ST_SYN_SENT) {
+            if (now >= c->rexmit_at) {
+                if (c->attempts >= 6) { c->reset = true; c->state = ST_CLOSED; continue; }
+                tcp_send_seg(c, TCP_SYN, c->snd_una, NULL, 0);
+                c->rexmit_at = now + 600; c->attempts++;
+            }
+            continue;
+        }
+
+        if (c->state == ST_ESTABLISHED) {
+            if (!c->fin_sent) c->snd_nxt = c->snd_una + c->txlen;
+            if (c->txlen > 0) {
+                if (now >= c->rexmit_at) {
+                    if (c->attempts >= 10) { c->reset = true; continue; }
+                    int off = 0;
+                    while (off < c->txlen) {
+                        int s = c->txlen - off; if (s > TCP_MSS) s = TCP_MSS;
+                        tcp_send_seg(c, TCP_PSH | TCP_ACK, c->snd_una + off, c->tx + off, s);
+                        off += s;
+                    }
+                    c->rexmit_at = now + 600; c->attempts++;
+                }
+            } else if (c->want_close && !c->fin_sent) {
+                tcp_send_seg(c, TCP_FIN | TCP_ACK, c->snd_nxt, NULL, 0);
+                c->fin_sent = true; c->used = false;   // fermeture côté client
+            }
+        } else if (c->state == ST_CLOSE_WAIT) {
+            if (c->want_close) {
+                if (!c->fin_sent) { tcp_send_seg(c, TCP_FIN | TCP_ACK, c->snd_nxt, NULL, 0); c->fin_sent = true; }
+                c->used = false;
+            }
+        }
+    }
 }
 
 // --- HTTP GET (hôte:port/chemin) : renvoie le CORPS, taille dans *body_len ---

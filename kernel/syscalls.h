@@ -39,6 +39,15 @@
 // --- Système -----------------------------------------------------------------
 #define SYS_reboot      0x260      // redémarre la machine
 
+// --- Réseau : sockets TCP NON BLOQUANTES + DNS (pour le navigateur ring 3) ----
+#define SYS_net_info    0x270      // (*netinfo_t) -> 0
+#define SYS_dns_resolve 0x271      // (name, *ip)  -> 1=résolu / 0=en cours / -1=échec
+#define SYS_tcp_open    0x272      // (ip, port)   -> id (>=0) / -1
+#define SYS_tcp_state   0x273      // (id)         -> 0=connexion / 1=établi / 2=fermé / -1
+#define SYS_tcp_send    0x274      // (id, buf, len) -> octets acceptés / -1
+#define SYS_tcp_recv    0x275      // (id, buf, len) -> octets / 0=rien / -1=fermé
+#define SYS_tcp_close   0x276      // (id)
+
 // --- Système de fichiers (par chemin ; agit sur le VFS du noyau) -------------
 #define SYS_vfs_list    0x230      // (path, index, *dirent) -> 1=entrée / 0=fin / -1=erreur
 #define SYS_vfs_read    0x231      // (vfs_io*) -> octets lus
@@ -65,6 +74,9 @@ typedef struct {
 typedef struct {
     uint32_t mem_total_mb, mem_used_mb, uptime_s, pci_count;
 } sysinfo_t;
+
+// État de l'interface réseau renvoyé par SYS_net_info (ordre hôte).
+typedef struct { uint32_t ip, mask, gateway, dns; int up; } netinfo_t;
 
 // Une entrée de la table des processus (SYS_proc_list), pour le moniteur d'activité.
 //  state : 1=prêt 2=actif 3=bloqué 4=zombie (cf. task_state_t côté noyau).
