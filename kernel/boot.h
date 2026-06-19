@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/boot.h -- Accès aux informations fournies par Limine
 // =============================================================================
-#ifndef MONOS_BOOT_H
-#define MONOS_BOOT_H
+#ifndef SEXOS_BOOT_H
+#define SEXOS_BOOT_H
 
 #include <stdint.h>
 #include "limine.h"

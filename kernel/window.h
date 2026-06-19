@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/window.h -- Fenêtres et gestionnaire de fenêtres
 // =============================================================================
-#ifndef MONOS_WINDOW_H
-#define MONOS_WINDOW_H
+#ifndef SEXOS_WINDOW_H
+#define SEXOS_WINDOW_H
 
 #include "gfx.h"
 #include "input.h"

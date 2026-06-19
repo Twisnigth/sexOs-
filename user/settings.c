@@ -6,7 +6,7 @@
 //  compte courant et l'état réseau, via les appels système dédiés. Page unique
 //  rafraîchie chaque seconde (mémoire/uptime vivants).
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 
@@ -49,7 +49,7 @@ static void render(void) {
     // --- Système -------------------------------------------------------------
     sysinfo_t si; sys_sysinfo(&si);
     line("Systeme", TITLE);
-    line("MonOS version 2.0  (x86_64)", W);
+    line("sexOs version 2.0  (x86_64)", W);
     line("Demarrage : Limine (UEFI/BIOS)", W);
     numline(b, "Memoire totale   : ", si.mem_total_mb, " Mio"); line(b, W);
     numline(b, "Memoire utilisee : ", si.mem_used_mb, " Mio"); line(b, W);

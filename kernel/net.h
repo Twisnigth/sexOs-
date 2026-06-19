@@ -1,8 +1,8 @@
 // =============================================================================
-//  kernel/net.h -- Pile réseau MonOS : types communs et API
+//  kernel/net.h -- Pile réseau sexOs : types communs et API
 // =============================================================================
-#ifndef MONOS_NET_H
-#define MONOS_NET_H
+#ifndef SEXOS_NET_H
+#define SEXOS_NET_H
 
 #include <stdint.h>
 #include <stddef.h>

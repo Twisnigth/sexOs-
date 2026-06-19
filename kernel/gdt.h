@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/gdt.h -- Table des descripteurs globaux (GDT) + TSS
 // =============================================================================
-#ifndef MONOS_GDT_H
-#define MONOS_GDT_H
+#ifndef SEXOS_GDT_H
+#define SEXOS_GDT_H
 
 #include <stdint.h>
 

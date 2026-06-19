@@ -1,5 +1,5 @@
 /* =============================================================================
- *  kernel/link.ld -- Script de liaison du noyau MonOS (x86_64, protocole Limine)
+ *  kernel/link.ld -- Script de liaison du noyau sexOs (x86_64, protocole Limine)
  * -----------------------------------------------------------------------------
  *  Le noyau est un ELF64 chargé par Limine dans la moitié haute de l'espace
  *  d'adressage virtuel (higher-half), à partir de 0xffffffff80000000.

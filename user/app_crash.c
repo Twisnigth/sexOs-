@@ -3,7 +3,7 @@
 //  Après quelques secondes, déréférence un pointeur nul -> #PF. Le noyau tue ce
 //  PROCESSUS ; le compositeur et les autres applications continuent (isolation).
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 

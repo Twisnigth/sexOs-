@@ -6,8 +6,8 @@
 //  exposant public). Pas de code secret ici : tout est public (clé + signature),
 //  donc le temps constant n'est pas requis.
 // =============================================================================
-#ifndef MONOS_BIGINT_H
-#define MONOS_BIGINT_H
+#ifndef SEXOS_BIGINT_H
+#define SEXOS_BIGINT_H
 
 #include <stdint.h>
 

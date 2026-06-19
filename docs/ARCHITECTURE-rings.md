@@ -1,4 +1,4 @@
-# MonOS — Frontière ring 0 / ring 3 (refactor du modèle de privilèges)
+# sexOs — Frontière ring 0 / ring 3 (refactor du modèle de privilèges)
 
 Ce document décrit, sans détour, **ce qui tourne en ring 0 (noyau) et ce qui
 tourne en ring 3 (utilisateur)** après le refactor du modèle de privilèges, et
@@ -59,7 +59,7 @@ donc DANS le processus bureau ; le noyau garde les siens pour sshd/pacman.
 ABI Linux (pour busybox/musl) : `write, writev, read, brk, mmap, munmap,
 arch_prctl, clock_gettime, uname, exit`…
 
-Natifs MonOS (≥ 0x200, cf. `kernel/syscalls.h`) : `get_cpl (0x200)`,
+Natifs sexOs (≥ 0x200, cf. `kernel/syscalls.h`) : `get_cpl (0x200)`,
 `fb_map (0x210)`, `input_poll (0x212)`, `time_ms (0x250)`.
 
 ## Fait

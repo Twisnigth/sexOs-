@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/ssh.h -- Client SSH-2 (transport + KEX curve25519-sha256)
 // =============================================================================
-#ifndef MONOS_SSH_H
-#define MONOS_SSH_H
+#ifndef SEXOS_SSH_H
+#define SEXOS_SSH_H
 
 #include "net.h"
 

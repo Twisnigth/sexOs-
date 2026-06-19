@@ -7,7 +7,7 @@
 //  tels quels dans le bureau ; le VFS et les comptes vivent donc DANS le
 //  processus bureau (le noyau garde les siens pour sshd/pacman).
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "gfx.h"
 #include "framebuffer.h"
 #include "rtc.h"

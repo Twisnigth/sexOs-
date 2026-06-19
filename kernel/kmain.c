@@ -1,5 +1,5 @@
 // =============================================================================
-//  kernel/kmain.c -- Point d'entrée et orchestration du noyau MonOS v2
+//  kernel/kmain.c -- Point d'entrée et orchestration du noyau sexOs v2
 // -----------------------------------------------------------------------------
 //  Séquence de démarrage :
 //    Limine -> kmain -> (série, framebuffer, GDT, IDT, PIC, PIT, mémoire,
@@ -114,7 +114,7 @@ static void draw_splash(void) {
 
     int cx = c->width / 2;
     int ty = c->height / 5;
-    canvas_draw_string(c, "MonOS", cx - canvas_text_width("MonOS", 6) / 2, ty, white, 6);
+    canvas_draw_string(c, "sexOs", cx - canvas_text_width("sexOs", 6) / 2, ty, white, 6);
     const char *sub = "version 2.0  --  demarrage du systeme";
     canvas_draw_string(c, sub, cx - canvas_text_width(sub, 2) / 2, ty + 6 * 16 + 16, accent, 2);
 
@@ -143,7 +143,7 @@ static void enable_sse(void) {
 void kmain(void) {
     serial_init();
     enable_sse();
-    kprintf("\n=== MonOS v2 : demarrage du noyau ===\n");
+    kprintf("\n=== sexOs v2 : demarrage du noyau ===\n");
 
     if (!LIMINE_BASE_REVISION_SUPPORTED) {
         kprintf("[boot] revision Limine non supportee\n");

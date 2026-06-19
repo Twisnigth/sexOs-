@@ -1,4 +1,4 @@
-# Pile réseau MonOS — du DHCP minimal à un client HTTP ring 3
+# Pile réseau sexOs — du DHCP minimal à un client HTTP ring 3
 
 Objectif : une base réseau **solide et utilisable depuis les applications ring 3**
 (un navigateur web), pas seulement un DHCP de démarrage. La difficulté n'était

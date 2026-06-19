@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/rtc.h -- Horloge temps réel (CMOS)
 // =============================================================================
-#ifndef MONOS_RTC_H
-#define MONOS_RTC_H
+#ifndef SEXOS_RTC_H
+#define SEXOS_RTC_H
 
 #include <stdint.h>
 

@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/pkg.h -- Gestionnaire de paquets natif (style pacman)
 // =============================================================================
-#ifndef MONOS_PKG_H
-#define MONOS_PKG_H
+#ifndef SEXOS_PKG_H
+#define SEXOS_PKG_H
 
 #include <stdint.h>
 

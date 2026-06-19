@@ -1,8 +1,8 @@
 // =============================================================================
 //  user/lib/ecdsa.h -- Vérification ECDSA P-256 (SHA-256) et P-384 (SHA-384)
 // =============================================================================
-#ifndef MONOS_ECDSA_H
-#define MONOS_ECDSA_H
+#ifndef SEXOS_ECDSA_H
+#define SEXOS_ECDSA_H
 
 #include <stdint.h>
 

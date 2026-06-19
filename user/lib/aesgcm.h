@@ -1,8 +1,8 @@
 // =============================================================================
 //  user/lib/aesgcm.h -- AES-128 + GCM (AEAD) pour TLS_AES_128_GCM_SHA256
 // =============================================================================
-#ifndef MONOS_AESGCM_H
-#define MONOS_AESGCM_H
+#ifndef SEXOS_AESGCM_H
+#define SEXOS_AESGCM_H
 #include <stdint.h>
 
 // Scelle : chiffre pt -> ct (même longueur) et produit tag[16].

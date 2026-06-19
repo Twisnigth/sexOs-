@@ -1,5 +1,5 @@
 ; =============================================================================
-;  kernel.asm  --  Noyau de MonOS (mode protégé 32 bits)
+;  kernel.asm  --  Noyau de sexOs (mode protégé 32 bits)
 ; -----------------------------------------------------------------------------
 ;  Contient :
 ;    - Un pilote écran VGA mode texte (0xB8000) : caractère, chaîne, effacement,
@@ -496,12 +496,12 @@ banner:
     db 10, 0
 
 welcome:
-    db "Bienvenue dans MonOS v0.1 !", 10
+    db "Bienvenue dans sexOs v0.1 !", 10
     db "Systeme x86 32 bits ecrit en assembleur.", 10
     db "Tapez 'help' pour la liste des commandes.", 10, 10, 0
 
 prompt:
-    db "MonOS> ", 0
+    db "sexOs> ", 0
 
 txt_help:
     db "Commandes disponibles :", 10
@@ -515,7 +515,7 @@ txt_help:
 
 txt_about:
     db 10
-    db "  MonOS version 0.1", 10
+    db "  sexOs version 0.1", 10
     db "  -----------------", 10
     db "  Un mini systeme d'exploitation x86 32 bits.", 10
     db "  Bootloader maison + noyau, 100% assembleur (NASM).", 10
@@ -533,7 +533,7 @@ txt_fortune:
 txt_art:
     db 10
     db "      .--.", 10
-    db "     |o_o |    MonOS", 10
+    db "     |o_o |    sexOs", 10
     db "     |:_/ |   ronronne", 10
     db "    //   \ \  dans QEMU", 10
     db "   (|     | )", 10

@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/proc.h -- Ring 3, appels système, exécution de binaires
 // =============================================================================
-#ifndef MONOS_PROC_H
-#define MONOS_PROC_H
+#ifndef SEXOS_PROC_H
+#define SEXOS_PROC_H
 
 #include <stdint.h>
 #include <stddef.h>

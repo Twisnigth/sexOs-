@@ -1,8 +1,8 @@
 // =============================================================================
 //  user/lib/libwin.h -- Bibliothèque cliente du compositeur (ring 3)
 // =============================================================================
-#ifndef MONOS_LIBWIN_H
-#define MONOS_LIBWIN_H
+#ifndef SEXOS_LIBWIN_H
+#define SEXOS_LIBWIN_H
 
 #include "gfx.h"
 #include "input.h"

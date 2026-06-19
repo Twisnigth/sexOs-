@@ -7,7 +7,7 @@
 //  Socle du futur navigateur : tout est en ring 3, le réseau passe par la tâche
 //  réseau du noyau qui pompe le NIC.
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 #include "input.h"

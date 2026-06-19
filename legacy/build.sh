@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  build.sh  --  Construit MonOS sans dépendre de make
+#  build.sh  --  Construit sexOs sans dépendre de make
 # -----------------------------------------------------------------------------
 #  Assemble le bootloader et le noyau, puis fusionne le tout dans une image
 #  disque bootable (os.img) complétée à la taille d'une disquette 1.44 Mio.

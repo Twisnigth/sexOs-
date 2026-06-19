@@ -178,7 +178,7 @@ static void derive_key(const uint8_t *Kmp, int kml, const uint8_t H[32], char le
 
 // --- Handshake (versions + KEXINIT + KEX + clé d'hôte + NEWKEYS) -------------
 static int ssh_handshake(ssh_t *s) {
-    strcpy(s->v_c, "SSH-2.0-MonOS_1.0");
+    strcpy(s->v_c, "SSH-2.0-sexOs_1.0");
     char hello[80]; strcpy(hello, s->v_c); strcat(hello, "\r\n");
     tcp_send(s->conn, hello, strlen(hello));
     if (!ssh_readline(s, s->v_s, sizeof(s->v_s))) return -1;
@@ -365,11 +365,11 @@ static int shell_exec_one(const char *user, const char *line, char *out, int out
     if (strcmp(cmd, "echo") == 0) { OUT(arg); OUT("\n"); }
     else if (strcmp(cmd, "whoami") == 0) { OUT(user); OUT("\n"); }
     else if (strcmp(cmd, "pwd") == 0) { char p[256]; vfs_path(cwd,p,sizeof(p)); OUT(p); OUT("\n"); }
-    else if (strcmp(cmd, "uname") == 0) { OUT("MonOS 2.0 x86_64\n"); }
+    else if (strcmp(cmd, "uname") == 0) { OUT("sexOs 2.0 x86_64\n"); }
     else if (strcmp(cmd, "date") == 0) { rtc_time_t t; rtc_now(&t); char b[24]; rtc_format(&t,b); OUT(b); OUT("\n"); }
     else if (strcmp(cmd, "id") == 0) { OUT("user="); OUT(user); OUT(u && u->is_admin ? " (admin)\n" : " (standard)\n"); }
     else if (strcmp(cmd, "help") == 0) { OUT("commandes: echo ls cat pwd whoami id uname date sysinfo about help\n"); }
-    else if (strcmp(cmd, "about") == 0) { OUT("MonOS v2 -- shell SSH distant\n  D\n  |\n  |\n  8\n"); }
+    else if (strcmp(cmd, "about") == 0) { OUT("sexOs v2 -- shell SSH distant\n  D\n  |\n  |\n  8\n"); }
     else if (strcmp(cmd, "sysinfo") == 0) {
         char b[24]; OUT("Memoire: "); utoa(pmm_total_bytes()/(1024*1024),b,10); OUT(b); OUT(" Mio\n");
     }
@@ -408,7 +408,7 @@ static int shell_exec(const char *user, const char *line, char *out, int outmax)
 
 // --- Handshake côté serveur --------------------------------------------------
 static int ssh_server_handshake(ssh_t *s) {
-    strcpy(s->v_s, "SSH-2.0-MonOS_1.0");
+    strcpy(s->v_s, "SSH-2.0-sexOs_1.0");
     char hello[80]; strcpy(hello, s->v_s); strcat(hello, "\r\n");
     tcp_send(s->conn, hello, strlen(hello));
     if (!ssh_readline(s, s->v_c, sizeof(s->v_c))) return -1;
@@ -532,11 +532,11 @@ static void ssh_server_session(ssh_t *s) {
             } else if (strcmp(rt,"shell")==0) {
                 if (want_reply) { uint8_t r[16]; o=0; r[o++]=MSG_CHANNEL_SUCCESS; wr32(r+o,client_ch); o+=4; ssh_send(s,r,o); }
                 // Shell interactif minimal : invite, lecture ligne, execution.
-                const char *banner="MonOS shell distant. Tapez 'help'.\r\n";
+                const char *banner="sexOs shell distant. Tapez 'help'.\r\n";
                 uint8_t d[8300];
                 o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)banner,strlen(banner)); ssh_send(s,d,o);
                 char linebuf[512]; int ll=0;
-                const char *prompt="monos$ ";
+                const char *prompt="sexos$ ";
                 o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)prompt,strlen(prompt)); ssh_send(s,d,o);
                 for (int g=0; g<100000; g++) {
                     if (!ssh_recv(s,p,&plen)) return;

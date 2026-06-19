@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/pit.h -- Minuteur programmable (PIT 8254), IRQ0
 // =============================================================================
-#ifndef MONOS_PIT_H
-#define MONOS_PIT_H
+#ifndef SEXOS_PIT_H
+#define SEXOS_PIT_H
 
 #include <stdint.h>
 

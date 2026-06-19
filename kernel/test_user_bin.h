@@ -1,6 +1,6 @@
 // Binaire musl-libc statique de test (user/hello_musl.c)
-#ifndef MONOS_TEST_USER_BIN_H
-#define MONOS_TEST_USER_BIN_H
+#ifndef SEXOS_TEST_USER_BIN_H
+#define SEXOS_TEST_USER_BIN_H
 #include <stddef.h>
 static const unsigned char test_user_elf[] = {
   0x7f,0x45,0x4c,0x46,0x02,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,

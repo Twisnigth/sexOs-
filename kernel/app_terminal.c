@@ -20,7 +20,7 @@
 #include "boot.h"
 #include "pkg.h"
 #include "io.h"
-#include "monos.h"        // ring 3 : sys_reboot (le bureau tourne en CPL 3)
+#include "sexos.h"        // ring 3 : sys_reboot (le bureau tourne en CPL 3)
 
 #define TCOLS 80
 #define TROWS 25
@@ -266,7 +266,7 @@ static void cmd_help(term_t *t) {
 }
 static void cmd_about(term_t *t) {
     term_print(t,
-        "\n  MonOS version 2.0\n"
+        "\n  sexOs version 2.0\n"
         "  Systeme x86_64, demarrage UEFI/BIOS via Limine.\n\n"
         "  Mascotte :\n    D\n    |\n    |\n    8\n\n");
 }
@@ -598,7 +598,7 @@ void app_terminal_open(void) {
     win->user = t;
     win->on_paint = term_paint;
     win->on_event = term_event;
-    term_print(t, "MonOS Terminal v2 -- 'help', Tab pour completer.\n");
+    term_print(t, "sexOs Terminal v2 -- 'help', Tab pour completer.\n");
     term_prompt(t);
     win->dirty = true;
 }

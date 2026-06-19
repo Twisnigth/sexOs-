@@ -1,5 +1,5 @@
 ; =============================================================================
-;  boot.asm  --  Bootloader (secteur d'amorçage 512 octets) pour MonOS
+;  boot.asm  --  Bootloader (secteur d'amorçage 512 octets) pour sexOs
 ; -----------------------------------------------------------------------------
 ;  Rôle :
 ;    1. Démarre en mode réel 16 bits (le BIOS nous charge à 0x7C00).
@@ -210,7 +210,7 @@ lba        dw 0
 cyl        db 0
 head       db 0
 sect       db 0
-msg_boot   db "MonOS : amorcage...", 13, 10, 0
+msg_boot   db "sexOs : amorcage...", 13, 10, 0
 
 ; --- Remplissage jusqu'à 510 octets + signature de boot 0xAA55 ---------------
 times 510 - ($ - $$) db 0

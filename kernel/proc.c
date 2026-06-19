@@ -230,10 +230,10 @@ long syscall_dispatch(sysargs_t *a) {
         char *u = (char *)a->rdi;
         if (u) {
             memset(u, 0, 6 * 65);
-            strcpy(u + 0*65, "MonOS");
-            strcpy(u + 1*65, "monos");
+            strcpy(u + 0*65, "sexOs");
+            strcpy(u + 1*65, "sexos");
             strcpy(u + 2*65, "2.0");
-            strcpy(u + 3*65, "MonOS v2 x86_64");
+            strcpy(u + 3*65, "sexOs v2 x86_64");
             strcpy(u + 4*65, "x86_64");
         }
         return 0;
@@ -244,7 +244,7 @@ long syscall_dispatch(sysargs_t *a) {
         exit_code = (int)a->rdi;
         user_exit();                                    // ne revient pas (legacy)
         return 0;
-    // --- Appels système natifs MonOS (>= 0x200) -----------------------------
+    // --- Appels système natifs sexOs (>= 0x200) -----------------------------
     case SYS_get_cpl: {
         uint16_t cs; __asm__ volatile ("mov %%cs, %0" : "=r"(cs));
         // NB : ici on est en ring 0 (dans le syscall) ; l'appelant était ring 3.

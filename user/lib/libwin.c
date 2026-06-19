@@ -3,7 +3,7 @@
 //  partagée, reçoit les événements, signale les dommages. (Ring 3, via IPC.)
 // =============================================================================
 #include "libwin.h"
-#include "monos.h"
+#include "sexos.h"
 #include "wproto.h"
 
 void *memset(void *, int, unsigned long);

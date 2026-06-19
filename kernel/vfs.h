@@ -4,8 +4,8 @@
 //  Fournit une arborescence fichiers/dossiers avec lecture/écriture et les
 //  opérations nécessaires à l'explorateur (créer, supprimer, renommer, déplacer).
 // =============================================================================
-#ifndef MONOS_VFS_H
-#define MONOS_VFS_H
+#ifndef SEXOS_VFS_H
+#define SEXOS_VFS_H
 
 #include <stdint.h>
 #include <stddef.h>

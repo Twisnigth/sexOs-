@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/input.h -- File d'événements d'entrée unifiée (clavier + souris)
 // =============================================================================
-#ifndef MONOS_INPUT_H
-#define MONOS_INPUT_H
+#ifndef SEXOS_INPUT_H
+#define SEXOS_INPUT_H
 
 #include <stdint.h>
 #include <stdbool.h>

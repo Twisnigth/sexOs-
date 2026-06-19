@@ -1,8 +1,8 @@
 // =============================================================================
-//  user/lib/monos.h -- Petite bibliothèque d'appels système (ring 3 MonOS)
+//  user/lib/sexos.h -- Petite bibliothèque d'appels système (ring 3 sexOs)
 // =============================================================================
-#ifndef MONOS_USER_LIB_H
-#define MONOS_USER_LIB_H
+#ifndef SEXOS_USER_LIB_H
+#define SEXOS_USER_LIB_H
 
 #include <stdint.h>
 #include "input.h"        // event_t, KEY_*, MOUSE_* (via -Ikernel)

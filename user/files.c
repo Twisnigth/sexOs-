@@ -4,7 +4,7 @@
 //  Client du compositeur (fenêtre via libwin). Le système de fichiers est
 //  manipulé UNIQUEMENT par appels système (sys_vfs_*) : aucun pointeur noyau.
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 #include "input.h"

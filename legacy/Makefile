@@ -1,10 +1,10 @@
 # =============================================================================
-#  Makefile  --  Construction de MonOS
+#  Makefile  --  Construction de sexOs
 # -----------------------------------------------------------------------------
 #  Cibles principales :
 #    make            : construit l'image disque os.img
-#    make run        : construit puis lance MonOS dans QEMU (disquette)
-#    make run-hdd    : lance MonOS dans QEMU en tant que disque dur
+#    make run        : construit puis lance sexOs dans QEMU (disquette)
+#    make run-hdd    : lance sexOs dans QEMU en tant que disque dur
 #    make iso        : génère l'image ISO bootable (via make_iso.sh)
 #    make run-iso    : construit l'ISO et la lance dans QEMU (-cdrom)
 #    make clean      : supprime les fichiers générés

@@ -1,6 +1,6 @@
-# MonOS v2 — système d'exploitation x86_64 avec interface graphique
+# sexOs v2 — système d'exploitation x86_64 avec interface graphique
 
-MonOS v2 est la refonte « grande échelle » du mini-OS 16/32 bits initial (conservé
+sexOs v2 est la refonte « grande échelle » du mini-OS 16/32 bits initial (conservé
 dans [`legacy/`](legacy/)). Il démarre sur **UEFI** (et **BIOS legacy** en repli),
 passe en **long mode 64 bits**, obtient un **framebuffer linéaire**, et lance une
 **interface graphique multi-fenêtres** avec authentification, applications et
@@ -10,7 +10,7 @@ Le noyau est écrit en **C autonome (freestanding) + NASM**. Le démarrage (UEFI
 long mode, pagination initiale, framebuffer GOP, memory map, ACPI) est délégué au
 chargeur **[Limine](https://github.com/limine-bootloader/limine)**.
 
-![Bureau MonOS](docs/desktop.png)
+![Bureau sexOs](docs/desktop.png)
 
 ## Captures d'écran
 
@@ -27,7 +27,7 @@ chargeur **[Limine](https://github.com/limine-bootloader/limine)**.
 ```bash
 sudo apt-get install build-essential nasm gcc binutils \
                      qemu-system-x86 ovmf xorriso mtools dosfstools
-make iso        # construit build/monos.iso
+make iso        # construit build/sexos.iso
 make run        # lance dans QEMU avec firmware UEFI (OVMF)
 ```
 
@@ -84,7 +84,7 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
 - ✅ **Client** (`ssh hôte[:port] user motdepasse commande`) : KEX
   curve25519-sha256, clé d'hôte ssh-ed25519 vérifiée, chiffre
   `chacha20-poly1305@openssh.com`, auth mot de passe, exécution distante.
-- ✅ **Serveur** (port 22) : clé d'hôte ed25519, auth contre les comptes MonOS
+- ✅ **Serveur** (port 22) : clé d'hôte ed25519, auth contre les comptes sexOs
   (user/root), canal **exec** et **shell interactif** (pty).
 - Testé dans les deux sens contre un `sshd`/`ssh` OpenSSH réel via QEMU SLIRP.
 
@@ -137,7 +137,7 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
   `hello`, vérifie chaque SHA-256, installe les deux ; `-Q` les liste ;
   `-R cowsay` le retire (voir `docs/pacman.png`).
 - ▶️ **Dépôt d'exemple prêt à l'emploi** dans [`repo/`](repo/) : lancez
-  `python3 -m http.server 8000` dans ce dossier puis `pacman -Sy` dans MonOS
+  `python3 -m http.server 8000` dans ce dossier puis `pacman -Sy` dans sexOs
   (voir [`repo/README.md`](repo/README.md) pour QEMU et VMware/VirtualBox).
 
 **Applications**
@@ -220,7 +220,7 @@ les éléments suivants **ne sont pas faits**. Ils sont signalés sans détour :
 
 ```bash
 make            # compile le noyau -> build/kernel.elf
-make iso        # construit l'image hybride -> build/monos.iso
+make iso        # construit l'image hybride -> build/sexos.iso
 make run        # QEMU avec firmware UEFI (OVMF)
 make run-bios   # QEMU en BIOS legacy (SeaBIOS)
 make run-net    # QEMU UEFI + réseau e1000 (DHCP/DNS) + hostfwd 2222->22 (SSH)
@@ -229,20 +229,20 @@ make clean      # nettoie build/
 
 ### Tester le réseau et SSH
 
-Dans le terminal MonOS (après `make run-net`) :
+Dans le terminal sexOs (après `make run-net`) :
 ```
 ifconfig                         # config obtenue par DHCP
 ping 10.0.2.2                    # passerelle SLIRP
 ssh 10.0.2.2:22 user motdepasse "uname -a"   # client SSH vers un sshd hôte
 ```
-Depuis l'hôte, vers le **serveur SSH** de MonOS (port 22 redirigé sur 2222) :
+Depuis l'hôte, vers le **serveur SSH** de sexOs (port 22 redirigé sur 2222) :
 ```bash
 ssh -p 2222 user@localhost       # mot de passe : user (ou root / root)
 ```
 
 ## Gravure sur clé USB
 
-`build/monos.iso` est **hybride** (isohybrid) : amorçable en UEFI et BIOS, et
+`build/sexos.iso` est **hybride** (isohybrid) : amorçable en UEFI et BIOS, et
 écrivable telle quelle sur une clé USB (comme Rufus en mode « image dd »).
 
 ```bash
@@ -259,7 +259,7 @@ make iso
 > - Indiquez le **disque entier** (`/dev/sdb`), **pas une partition** (`/dev/sdb1`).
 > - Le script refuse les noms de partition et exige une confirmation explicite.
 
-Avec Rufus (Windows) : sélectionner `monos.iso`, écrire en **mode image DD**.
+Avec Rufus (Windows) : sélectionner `sexos.iso`, écrire en **mode image DD**.
 
 ## Dépendances (Debian / Ubuntu)
 

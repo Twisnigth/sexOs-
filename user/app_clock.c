@@ -2,7 +2,7 @@
 //  user/app_clock.c -- Application RING 3 (processus séparé) : horloge.
 //  Affiche le temps de fonctionnement dans sa fenêtre (tampon partagé).
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 

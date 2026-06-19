@@ -1,6 +1,6 @@
-# MonOS — un mini système d'exploitation x86 en assembleur
+# sexOs — un mini système d'exploitation x86 en assembleur
 
-MonOS est un petit système d'exploitation **x86 32 bits** écrit intégralement en
+sexOs est un petit système d'exploitation **x86 32 bits** écrit intégralement en
 **assembleur (NASM)**. Il démarre en mode réel 16 bits, bascule en mode protégé
 32 bits, puis lance un **shell interactif** avec quelques commandes intégrées.
 
@@ -11,8 +11,8 @@ MonOS est un petit système d'exploitation **x86 32 bits** écrit intégralement
  | |  | | (_) | | | | |_| |___) |
  |_|  |_|\___/|_| |_|\___/|____/
 
-Bienvenue dans MonOS v0.1 !
-MonOS> _
+Bienvenue dans sexOs v0.1 !
+sexOs> _
 ```
 
 ## Fonctionnalités
@@ -55,8 +55,8 @@ sudo apt-get install nasm binutils qemu-system-x86 xorriso
 
 ```bash
 make            # construit l'image disque os.img
-make run        # construit puis lance MonOS dans QEMU (disquette)
-make run-hdd    # lance MonOS comme disque dur
+make run        # construit puis lance sexOs dans QEMU (disquette)
+make run-hdd    # lance sexOs comme disque dur
 make iso        # génère os.iso
 make run-iso    # construit l'ISO et la lance (-cdrom)
 make clean      # supprime les fichiers générés
@@ -66,14 +66,14 @@ make clean      # supprime les fichiers générés
 
 ```bash
 ./build.sh                          # produit os.img
-qemu-system-i386 -fda os.img        # lance MonOS
+qemu-system-i386 -fda os.img        # lance sexOs
 ./make_iso.sh                       # produit os.iso
 qemu-system-i386 -cdrom os.iso      # lance depuis l'ISO
 ```
 
 ## Utilisation
 
-Une fois MonOS démarré, une invite `MonOS>` apparaît. Tapez une commande puis
+Une fois sexOs démarré, une invite `sexOs>` apparaît. Tapez une commande puis
 **Entrée** :
 
 | Commande   | Effet                                         |

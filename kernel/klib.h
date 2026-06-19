@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/klib.h -- Bibliothèque de base du noyau (pas de libc)
 // =============================================================================
-#ifndef MONOS_KLIB_H
-#define MONOS_KLIB_H
+#ifndef SEXOS_KLIB_H
+#define SEXOS_KLIB_H
 
 #include <stdint.h>
 #include <stddef.h>

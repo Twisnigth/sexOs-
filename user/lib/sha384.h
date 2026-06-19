@@ -1,8 +1,8 @@
 // =============================================================================
 //  user/lib/sha384.h -- SHA-384 (FIPS 180-4), pour ECDSA P-384
 // =============================================================================
-#ifndef MONOS_SHA384_H
-#define MONOS_SHA384_H
+#ifndef SEXOS_SHA384_H
+#define SEXOS_SHA384_H
 #include <stdint.h>
 #include <stddef.h>
 typedef struct { uint64_t h[8], len; uint8_t buf[128]; int n; } sha384_ctx;

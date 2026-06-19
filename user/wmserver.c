@@ -8,7 +8,7 @@
 //  matériel direct. (Le portage complet des 5 applications, couplées au VFS et
 //  aux comptes, reste à faire : il nécessite la couche de syscalls VFS/users.)
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "gfx.h"          // primitives de dessin (via -Ikernel), recompilées ring 3
 
 #define TB   24           // hauteur de la barre de titre
@@ -87,7 +87,7 @@ int main(void) {
         canvas_fill_rect(&back, cx, cy, 8, 8, rgb(255, 255, 255));
         // bandeau d'info
         char up[24]; itoa_u(sys_time_ms() / 1000, up);
-        canvas_draw_string(&back, "MonOS -- bureau en RING 3 (CPL 3)  uptime=", 12, 10,
+        canvas_draw_string(&back, "sexOs -- bureau en RING 3 (CPL 3)  uptime=", 12, 10,
                            rgb(0x9a, 0xc8, 0xff), 1);
         canvas_draw_string(&back, up, 12 + 42 * 8, 10, rgb(0x9a, 0xc8, 0xff), 1);
 

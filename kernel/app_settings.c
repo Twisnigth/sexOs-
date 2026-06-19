@@ -27,7 +27,7 @@ static void paint_systeme(canvas_t *c, int x, int y) {
     uint32_t w = fb_rgb(0xff,0xff,0xff), g = fb_rgb(0x9a,0xc8,0xff);
     char b[96], num[24];
     put(c, x, &y, "Informations systeme", g);
-    put(c, x, &y, "MonOS version 2.0 (x86_64)", w);
+    put(c, x, &y, "sexOs version 2.0 (x86_64)", w);
     put(c, x, &y, "Demarrage : UEFI/BIOS via Limine", w);
     strcpy(b, "Memoire totale : "); utoa(pmm_total_bytes()/(1024*1024), num, 10); strcat(b, num); strcat(b, " Mio");
     put(c, x, &y, b, w);

@@ -1,5 +1,5 @@
 ; =============================================================================
-;  user/lib/crt0.asm -- Amorce des programmes ring 3 MonOS
+;  user/lib/crt0.asm -- Amorce des programmes ring 3 sexOs
 ;  Appelle main(), puis exit(code de retour).
 ; =============================================================================
 [BITS 64]

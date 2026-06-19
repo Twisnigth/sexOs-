@@ -6,8 +6,8 @@
 //  de magasin d'autorités). La connexion est donc CHIFFREE mais NON AUTHENTIFIEE
 //  (vulnérable à un homme du milieu). À ne pas utiliser pour des secrets réels.
 // =============================================================================
-#ifndef MONOS_TLS_H
-#define MONOS_TLS_H
+#ifndef SEXOS_TLS_H
+#define SEXOS_TLS_H
 
 #include <stdint.h>
 

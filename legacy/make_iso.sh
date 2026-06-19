@@ -38,7 +38,7 @@ if command -v xorriso >/dev/null 2>&1; then
     echo "==> Generation de l'ISO avec xorriso (El Torito, no-emulation)"
     xorriso -as mkisofs \
         -o "$OS_ISO" \
-        -V "MONOS" \
+        -V "SEXOS" \
         -b boot/os.img \
         -no-emul-boot \
         -boot-load-size "$BOOT_LOAD_SIZE" \
@@ -47,7 +47,7 @@ elif command -v genisoimage >/dev/null 2>&1; then
     echo "==> Generation de l'ISO avec genisoimage (El Torito, no-emulation)"
     genisoimage \
         -o "$OS_ISO" \
-        -V "MONOS" \
+        -V "SEXOS" \
         -b boot/os.img \
         -no-emul-boot \
         -boot-load-size "$BOOT_LOAD_SIZE" \

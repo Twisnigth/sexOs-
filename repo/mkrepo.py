@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =============================================================================
-#  repo/mkrepo.py -- Genere un depot de paquets MonOS (format MONPAC1)
+#  repo/mkrepo.py -- Genere un depot de paquets sexOs (format MONPAC1)
 # -----------------------------------------------------------------------------
 #  Produit, dans le dossier courant :
 #    - un fichier <nom>-<version>.pkg par paquet (format MONPAC1)
@@ -16,13 +16,13 @@ import hashlib, os
 #  name    : nom du paquet (ce que vous tapez dans `pacman -S <name>`)
 #  version : version (texte libre)
 #  deps    : liste de noms de paquets requis (installes automatiquement)
-#  files   : { chemin_dans_MonOS : contenu_texte }
+#  files   : { chemin_dans_sexOs : contenu_texte }
 PACKAGES = [
     {
         "name": "hello", "version": "1.0", "deps": [],
         "files": {
             "/usr/share/hello/message.txt":
-                "Bonjour ! Le paquet 'hello' a ete installe par pacman dans MonOS.\n",
+                "Bonjour ! Le paquet 'hello' a ete installe par pacman dans sexOs.\n",
         },
     },
     {
@@ -30,7 +30,7 @@ PACKAGES = [
         "files": {
             "/usr/share/cowsay/cow.txt":
                 "  ___________\n"
-                " < MonOS ! >\n"
+                " < sexOs ! >\n"
                 "  -----------\n"
                 "        \\   ^__^\n"
                 "         \\  (oo)\\___\n"

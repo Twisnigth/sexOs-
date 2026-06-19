@@ -5,8 +5,8 @@
 //  et le back-buffer du compositeur sont tous deux des canvas, ce qui permet de
 //  dessiner partout avec le même code (clé du double buffering anti-scintillement).
 // =============================================================================
-#ifndef MONOS_GFX_H
-#define MONOS_GFX_H
+#ifndef SEXOS_GFX_H
+#define SEXOS_GFX_H
 
 #include <stdint.h>
 #include <stddef.h>

@@ -1,5 +1,5 @@
 # =============================================================================
-#  repo/serve.ps1 -- Mini serveur HTTP pour le depot MonOS (sans Python)
+#  repo/serve.ps1 -- Mini serveur HTTP pour le depot sexOs (sans Python)
 # -----------------------------------------------------------------------------
 #  A lancer DANS le dossier du depot, dans un PowerShell *Administrateur* :
 #      powershell -ExecutionPolicy Bypass -File serve.ps1
@@ -22,9 +22,9 @@ try {
     exit 1
 }
 
-Write-Host "Depot MonOS servi sur le port $Port" -ForegroundColor Green
+Write-Host "Depot sexOs servi sur le port $Port" -ForegroundColor Green
 Write-Host "Dossier : $root"
-Write-Host "Vos adresses IP (a utiliser cote MonOS avec 'pacman -Sr <ip>:$Port') :"
+Write-Host "Vos adresses IP (a utiliser cote sexOs avec 'pacman -Sr <ip>:$Port') :"
 Get-NetIPAddress -AddressFamily IPv4 |
     Where-Object { $_.IPAddress -ne '127.0.0.1' } |
     ForEach-Object { Write-Host ("   " + $_.IPAddress) }

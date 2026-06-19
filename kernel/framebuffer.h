@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/framebuffer.h -- Framebuffer matériel fourni par Limine
 // =============================================================================
-#ifndef MONOS_FRAMEBUFFER_H
-#define MONOS_FRAMEBUFFER_H
+#ifndef SEXOS_FRAMEBUFFER_H
+#define SEXOS_FRAMEBUFFER_H
 
 #include "gfx.h"
 #include "limine.h"

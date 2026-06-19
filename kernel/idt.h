@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/idt.h -- Table des interruptions (IDT) et répartition
 // =============================================================================
-#ifndef MONOS_IDT_H
-#define MONOS_IDT_H
+#ifndef SEXOS_IDT_H
+#define SEXOS_IDT_H
 
 #include <stdint.h>
 

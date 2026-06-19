@@ -1,8 +1,8 @@
 // =============================================================================
 //  user/lib/http.h -- Client HTTP/1.1 minimal pour ring 3 (au-dessus des sockets)
 // =============================================================================
-#ifndef MONOS_HTTP_H
-#define MONOS_HTTP_H
+#ifndef SEXOS_HTTP_H
+#define SEXOS_HTTP_H
 
 #include <stdint.h>
 

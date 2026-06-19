@@ -1,11 +1,11 @@
 // =============================================================================
-//  kernel/syscalls.h -- Appels système natifs MonOS (partagé noyau/userspace)
+//  kernel/syscalls.h -- Appels système natifs sexOs (partagé noyau/userspace)
 // -----------------------------------------------------------------------------
-//  Les numéros >= 0x200 sont propres à MonOS et cohabitent avec l'ABI Linux
+//  Les numéros >= 0x200 sont propres à sexOs et cohabitent avec l'ABI Linux
 //  (numéros 0..~300) utilisée par les binaires busybox/musl.
 // =============================================================================
-#ifndef MONOS_SYSCALLS_H
-#define MONOS_SYSCALLS_H
+#ifndef SEXOS_SYSCALLS_H
+#define SEXOS_SYSCALLS_H
 
 #include <stdint.h>
 

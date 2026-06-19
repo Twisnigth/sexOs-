@@ -1,9 +1,9 @@
 # =============================================================================
-#  Makefile -- Construction de MonOS v2 (noyau 64 bits + image Limine)
+#  Makefile -- Construction de sexOs v2 (noyau 64 bits + image Limine)
 # -----------------------------------------------------------------------------
 #  Cibles :
 #    make            : compile le noyau (build/kernel.elf)
-#    make iso        : construit l'image hybride bootable build/monos.iso
+#    make iso        : construit l'image hybride bootable build/sexos.iso
 #    make run        : lance l'ISO dans QEMU avec firmware UEFI (OVMF)
 #    make run-bios   : lance l'ISO dans QEMU en BIOS legacy (SeaBIOS)
 #    make clean      : supprime les fichiers générés
@@ -28,7 +28,7 @@ BUILD   := build
 OBJDIR  := $(BUILD)/obj
 ISODIR  := $(BUILD)/iso
 KERNEL  := $(BUILD)/kernel.elf
-ISO     := $(BUILD)/monos.iso
+ISO     := $(BUILD)/sexos.iso
 
 # Firmware UEFI pour QEMU.
 OVMF_CODE := /usr/share/OVMF/OVMF_CODE_4M.fd

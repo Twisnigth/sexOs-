@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/heap.h -- Tas noyau (kmalloc / kfree)
 // =============================================================================
-#ifndef MONOS_HEAP_H
-#define MONOS_HEAP_H
+#ifndef SEXOS_HEAP_H
+#define SEXOS_HEAP_H
 
 #include <stddef.h>
 #include <stdint.h>

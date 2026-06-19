@@ -7,7 +7,7 @@
 //    - lire l'horloge (sys_time_ms).
 //  Aucun accès matériel direct : tout passe par le noyau.
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 
 int main(void) {
     // Preuve sur le port série : exécution en ring 3 (CPL 3) via syscall.

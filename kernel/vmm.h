@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/vmm.h -- Mémoire virtuelle : mappage de pages (MMIO notamment)
 // =============================================================================
-#ifndef MONOS_VMM_H
-#define MONOS_VMM_H
+#ifndef SEXOS_VMM_H
+#define SEXOS_VMM_H
 
 #include <stdint.h>
 #include <stddef.h>

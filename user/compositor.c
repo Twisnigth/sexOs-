@@ -7,7 +7,7 @@
 //  routés vers la fenêtre au focus. Un crash d'application ne touche pas le
 //  compositeur (isolation par le matériel : kill-on-fault côté noyau).
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "gfx.h"
 #include "wproto.h"
 
@@ -231,7 +231,7 @@ int main(void) {
 
         // (3) Composition.
         canvas_fill(&back, rgb(0x16, 0x18, 0x28));
-        canvas_draw_string(&back, "MonOS -- bureau ring 3 : cliquez sur \"Menu\" (en bas) pour lancer une application",
+        canvas_draw_string(&back, "sexOs -- bureau ring 3 : cliquez sur \"Menu\" (en bas) pour lancer une application",
                            12, 8, rgb(0x9a, 0xc8, 0xff), 1);
         for (int i = 0; i < MAXW; i++) if (wins[i].used && i != top_index) draw_window(&wins[i], 0);
         if (top_index >= 0 && wins[top_index].used) draw_window(&wins[top_index], 1);

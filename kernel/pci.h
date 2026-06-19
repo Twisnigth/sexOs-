@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/pci.h -- Énumération du bus PCI
 // =============================================================================
-#ifndef MONOS_PCI_H
-#define MONOS_PCI_H
+#ifndef SEXOS_PCI_H
+#define SEXOS_PCI_H
 
 #include <stdint.h>
 #include <stdbool.h>

@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/pic.h -- Contrôleur d'interruptions programmable 8259 (PIC)
 // =============================================================================
-#ifndef MONOS_PIC_H
-#define MONOS_PIC_H
+#ifndef SEXOS_PIC_H
+#define SEXOS_PIC_H
 
 #include <stdint.h>
 

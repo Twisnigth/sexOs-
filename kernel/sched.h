@@ -6,8 +6,8 @@
 //  par l'IRQ du minuteur (PIT) ; commutation aussi à la sortie d'un processus
 //  (exit) et lorsqu'une tâche faute (kill-on-fault).
 // =============================================================================
-#ifndef MONOS_SCHED_H
-#define MONOS_SCHED_H
+#ifndef SEXOS_SCHED_H
+#define SEXOS_SCHED_H
 
 #include <stdint.h>
 #include <stddef.h>

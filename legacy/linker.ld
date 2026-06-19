@@ -1,5 +1,5 @@
 /* =============================================================================
- *  linker.ld  --  Script de liaison du noyau de MonOS
+ *  linker.ld  --  Script de liaison du noyau de sexOs
  * -----------------------------------------------------------------------------
  *  Le noyau est chargé par le bootloader à l'adresse physique 0x10000.
  *  On lie donc tout le code/données à partir de cette adresse, puis on

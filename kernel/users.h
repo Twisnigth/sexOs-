@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/users.h -- Comptes utilisateurs, authentification, privilèges
 // =============================================================================
-#ifndef MONOS_USERS_H
-#define MONOS_USERS_H
+#ifndef SEXOS_USERS_H
+#define SEXOS_USERS_H
 
 #include <stdint.h>
 #include <stdbool.h>

@@ -1,4 +1,4 @@
-/* Script de lien des programmes ring 3 MonOS : chargés à 0x400000. */
+/* Script de lien des programmes ring 3 sexOs : chargés à 0x400000. */
 ENTRY(_start)
 SECTIONS {
     . = 0x400000;

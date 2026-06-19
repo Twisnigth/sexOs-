@@ -53,7 +53,7 @@ int crypto_selftest(void) {
         uint8_t seed[32], sk[64], pk[32], sig[64];
         csprng_bytes(seed, 32);
         crypto_ed25519_key_pair(sk, pk, seed);
-        const char *msg = "MonOS SSH host key test";
+        const char *msg = "sexOs SSH host key test";
         crypto_ed25519_sign(sig, sk, (const uint8_t *)msg, strlen(msg));
         int ok = crypto_ed25519_check(sig, pk, (const uint8_t *)msg, strlen(msg));
         sig[0] ^= 1;   // corruption -> doit échouer

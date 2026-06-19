@@ -2,7 +2,7 @@
 //  user/app_hello.c -- Application RING 3 (processus séparé) : suit la souris.
 //  Prouve le routage des entrées du compositeur vers la fenêtre au focus.
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 

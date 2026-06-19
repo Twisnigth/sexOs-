@@ -9,7 +9,7 @@
 //  Le % CPU est calcule a partir des tops du minuteur attribues a chaque tache
 //  entre deux echantillons (idle = pid 0). Aucun pointeur noyau partage.
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 #include "input.h"
@@ -102,7 +102,7 @@ static void redraw(void) {
 
     // --- En-tête : titre + date/heure ---------------------------------------
     canvas_fill_rect(cv, 0, 0, cv->width, 26, rgb(0x12, 0x18, 0x22));
-    canvas_draw_string(cv, "MonOS  --  Moniteur d'activite", PAD, 5, ACC, 1);
+    canvas_draw_string(cv, "sexOs  --  Moniteur d'activite", PAD, 5, ACC, 1);
     rtct_t t; sys_rtc(&t);
     p = buf; p = catn(p, t.year); *p++ = '-'; p = cat2(p, t.month); *p++ = '-'; p = cat2(p, t.day);
     *p++ = ' '; p = cat2(p, t.hour); *p++ = ':'; p = cat2(p, t.minute); *p++ = ':'; p = cat2(p, t.second); *p = 0;

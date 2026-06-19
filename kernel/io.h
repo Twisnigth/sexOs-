@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/io.h -- Accès aux ports d'E/S x86 (inb/outb...) en ligne
 // =============================================================================
-#ifndef MONOS_IO_H
-#define MONOS_IO_H
+#ifndef SEXOS_IO_H
+#define SEXOS_IO_H
 
 #include <stdint.h>
 

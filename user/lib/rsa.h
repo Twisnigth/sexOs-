@@ -1,8 +1,8 @@
 // =============================================================================
 //  user/lib/rsa.h -- Vérification de signature RSA (PKCS#1 v1.5 + PSS, SHA-256)
 // =============================================================================
-#ifndef MONOS_RSA_H
-#define MONOS_RSA_H
+#ifndef SEXOS_RSA_H
+#define SEXOS_RSA_H
 
 #include <stdint.h>
 #include "bigint.h"

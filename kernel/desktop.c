@@ -184,7 +184,7 @@ static bool login_screen(void) {
         // --- Rendu ---
         canvas_fill(&back, fb_rgb(0x0e, 0x10, 0x1c));
         int cx = back.width / 2;
-        canvas_draw_string(&back, "MonOS", cx - canvas_text_width("MonOS", 5)/2, 80, fb_rgb(0xff,0xff,0xff), 5);
+        canvas_draw_string(&back, "sexOs", cx - canvas_text_width("sexOs", 5)/2, 80, fb_rgb(0xff,0xff,0xff), 5);
         // Mascotte.
         const char *m[] = { "D", "|", "|", "8" };
         for (int i = 0; i < 4; i++)

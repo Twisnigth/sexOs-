@@ -1,8 +1,8 @@
 // Police bitmap 8x16, 256 glyphes (derivee de la police VGA Lat15-VGA16,
 // fournie par console-setup ; les bitmaps de fontes VGA sont du domaine public).
 // Genere automatiquement -- ne pas editer a la main.
-#ifndef MONOS_FONT8X16_H
-#define MONOS_FONT8X16_H
+#ifndef SEXOS_FONT8X16_H
+#define SEXOS_FONT8X16_H
 #include <stdint.h>
 #define FONT_WIDTH  8
 #define FONT_HEIGHT 16

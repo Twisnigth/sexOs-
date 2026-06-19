@@ -2,7 +2,7 @@
 //  user/lib/urt.c -- Mini-runtime pour les programmes ring 3 (compositeur/apps)
 //  Fournit ce que gcc -ffreestanding attend (memset/memcpy) + quelques utilitaires.
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 
 void *memset(void *d, int c, unsigned long n) {
     unsigned char *p = d; while (n--) *p++ = (unsigned char)c; return d;

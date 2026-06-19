@@ -5,8 +5,8 @@
 //  dates, du SAN (noms DNS), des DN, et vérification de la signature d'un
 //  certificat par un autre (chaînage). ECDSA non géré (signalé).
 // =============================================================================
-#ifndef MONOS_X509_H
-#define MONOS_X509_H
+#ifndef SEXOS_X509_H
+#define SEXOS_X509_H
 
 #include <stdint.h>
 #include "bigint.h"

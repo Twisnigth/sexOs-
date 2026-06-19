@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/apps.h -- Applications du bureau
 // =============================================================================
-#ifndef MONOS_APPS_H
-#define MONOS_APPS_H
+#ifndef SEXOS_APPS_H
+#define SEXOS_APPS_H
 
 #include "vfs.h"
 

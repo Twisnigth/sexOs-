@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/pmm.h -- Gestionnaire de mémoire physique (allocateur par bitmap)
 // =============================================================================
-#ifndef MONOS_PMM_H
-#define MONOS_PMM_H
+#ifndef SEXOS_PMM_H
+#define SEXOS_PMM_H
 
 #include <stdint.h>
 #include <stddef.h>

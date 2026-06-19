@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/ps2.h -- Pilote clavier + souris PS/2
 // =============================================================================
-#ifndef MONOS_PS2_H
-#define MONOS_PS2_H
+#ifndef SEXOS_PS2_H
+#define SEXOS_PS2_H
 
 #include <stdint.h>
 #include <stdbool.h>

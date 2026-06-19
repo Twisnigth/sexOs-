@@ -4,8 +4,8 @@
 //  S'appuie sur Monocypher (X25519, Ed25519, ChaCha20, Poly1305, SHA-512,
 //  domaine public / BSD-2) + SHA-256 maison + un CSPRNG ChaCha20.
 // =============================================================================
-#ifndef MONOS_CRYPTO_H
-#define MONOS_CRYPTO_H
+#ifndef SEXOS_CRYPTO_H
+#define SEXOS_CRYPTO_H
 
 #include <stdint.h>
 #include <stddef.h>

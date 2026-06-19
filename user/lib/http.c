@@ -1,7 +1,7 @@
 // =============================================================================
 //  user/lib/http.c -- Client HTTP/1.1 ring 3 (HTTP + HTTPS via TLS) + redirections
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "http.h"
 #include "tls.h"
 
@@ -107,7 +107,7 @@ int http_fetch(const char *url, char *body, int maxbody, int *status, const char
         for (const char *q = path; *q; q++) req[o++] = *q;
         a = " HTTP/1.1\r\nHost: ";                 while (*a) req[o++] = *a++;
         for (const char *q = host; *q; q++) req[o++] = *q;
-        a = "\r\nUser-Agent: MonOS/2.0\r\nAccept: */*\r\nConnection: close\r\n\r\n";
+        a = "\r\nUser-Agent: sexOs/2.0\r\nAccept: */*\r\nConnection: close\r\n\r\n";
         while (*a) req[o++] = *a++;
 
         if (secure) {

@@ -16,7 +16,7 @@ static void about_paint(window_t *win) {
     canvas_fill(c, bg);
 
     int cx = c->width / 2;
-    canvas_draw_string(c, "MonOS", cx - canvas_text_width("MonOS", 4)/2, 20, white, 4);
+    canvas_draw_string(c, "sexOs", cx - canvas_text_width("sexOs", 4)/2, 20, white, 4);
     canvas_draw_string(c, "version 2.0", cx - canvas_text_width("version 2.0", 1)/2, 70, accent, 1);
 
     // Mascotte verticale.
@@ -42,7 +42,7 @@ static void about_event(window_t *win, const event_t *e, int cx, int cy) {
 }
 
 void app_about_open(void) {
-    window_t *win = wm_create("A propos de MonOS", 300, 160, 420, 380);
+    window_t *win = wm_create("A propos de sexOs", 300, 160, 420, 380);
     if (!win) return;
     win->on_paint = about_paint;
     win->on_event = about_event;

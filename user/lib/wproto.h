@@ -1,8 +1,8 @@
 // =============================================================================
 //  user/lib/wproto.h -- Protocole compositeur <-> applications (IPC)
 // =============================================================================
-#ifndef MONOS_WPROTO_H
-#define MONOS_WPROTO_H
+#ifndef SEXOS_WPROTO_H
+#define SEXOS_WPROTO_H
 
 #include "input.h"
 

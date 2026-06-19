@@ -1,8 +1,8 @@
 // =============================================================================
 //  kernel/elf.h -- Chargeur ELF64 (binaires statiques)
 // =============================================================================
-#ifndef MONOS_ELF_H
-#define MONOS_ELF_H
+#ifndef SEXOS_ELF_H
+#define SEXOS_ELF_H
 
 #include <stdint.h>
 #include <stddef.h>

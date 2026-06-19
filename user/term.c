@@ -4,7 +4,7 @@
 //  N'utilise QUE des appels système : fenêtre via le compositeur (libwin),
 //  système de fichiers / comptes / infos via syscalls. Aucun pointeur noyau.
 // =============================================================================
-#include "monos.h"
+#include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
 #include "input.h"
@@ -120,7 +120,7 @@ static void cmd_date(void) {
 }
 static void cmd_sysinfo(void) {
     sysinfo_t s; sys_sysinfo(&s); char n[24];
-    tprint("MonOS v2 x86_64 (bureau multi-processus, ring 3)\n");
+    tprint("sexOs v2 x86_64 (bureau multi-processus, ring 3)\n");
     utoa(s.mem_used_mb, n); tprint("memoire : "); tprint(n); tprint(" / ");
     utoa(s.mem_total_mb, n); tprint(n); tprint(" Mio\n");
     utoa(s.uptime_s, n); tprint("uptime  : "); tprint(n); tprint(" s\n");
@@ -158,7 +158,7 @@ int main(void) {
     memset(cells, ' ', sizeof cells);
     strcpy(cwd, "/home/user");
     dirent_t e; if (sys_vfs_stat(cwd, &e) != 0) strcpy(cwd, "/");
-    tprint("MonOS Terminal -- PROCESSUS ring 3 separe. Tapez 'help'.\n");
+    tprint("sexOs Terminal -- PROCESSUS ring 3 separe. Tapez 'help'.\n");
     prompt(); redraw();
 
     for (;;) {
