@@ -170,23 +170,22 @@ static void dirty_add(int x, int y, int w, int h) {
 }
 static void dirty_full(void) { d_full = 1; d_any = 1; }
 
-// Copie une région de 'back' vers l'écran (bornée à l'écran).
-static void blit_region(int x, int y, int w, int h) {
+// Peint screen[rect] = back[rect] avec le CURSEUR (blanc) superposé là où il se
+// trouve (curx,cury). Chaque pixel reçoit DIRECTEMENT sa valeur finale en un seul
+// passage : il n'existe jamais d'état intermédiaire « effacé » à l'écran, donc
+// pas de clignotement (contrairement à un effacer-puis-redessiner en deux temps).
+static void paint(int x, int y, int w, int h, int curx, int cury) {
     if (x < 0) { w += x; x = 0; }
     if (y < 0) { h += y; y = 0; }
     if (x + w > (int)screen.width)  w = (int)screen.width  - x;
     if (y + h > (int)screen.height) h = (int)screen.height - y;
     if (w <= 0 || h <= 0) return;
     for (int yy = y; yy < y + h; yy++) {
-        const uint32_t *s = (const uint32_t *)((const uint8_t *)back.pixels + yy * back.pitch) + x;
-        uint32_t *dd = (uint32_t *)((uint8_t *)screen.pixels + yy * screen.pitch) + x;
-        for (int i = 0; i < w; i++) dd[i] = s[i];
-    }
-}
-static void draw_cursor_screen(int x, int y) {
-    for (int yy = 0; yy < 8 && y + yy < (int)screen.height; yy++) {
-        uint32_t *dd = (uint32_t *)((uint8_t *)screen.pixels + (y + yy) * screen.pitch) + x;
-        for (int i = 0; i < 8 && x + i < (int)screen.width; i++) dd[i] = 0xFFFFFF;
+        const uint32_t *s = (const uint32_t *)((const uint8_t *)back.pixels + yy * back.pitch);
+        uint32_t *dd = (uint32_t *)((uint8_t *)screen.pixels + yy * screen.pitch);
+        int in_cur_row = (yy >= cury && yy < cury + 8);
+        for (int xx = x; xx < x + w; xx++)
+            dd[xx] = (in_cur_row && xx >= curx && xx < curx + 8) ? 0xFFFFFF : s[xx];
     }
 }
 // Recompose tout le bureau (sans curseur) dans 'back' (mémoire cache : rapide).
@@ -293,21 +292,24 @@ int main(void) {
         }
 
         // (3) Mise à jour de l'écran : on ne pousse au framebuffer (lent) que les
-        //  zones réellement modifiées (recomposition partielle). Le curseur logiciel
-        //  est RETRACÉ à chaque trame (8x8, idempotent -> pas de clignotement) ; on
-        //  n'efface l'ancienne position QUE lorsqu'il bouge (sinon pas de traînée).
+        //  zones modifiées, et le curseur est composé EN UN SEUL PASSAGE avec le
+        //  fond (jamais d'état « effacé » visible -> pas de clignotement). Quand le
+        //  curseur se déplace, on dessine la NOUVELLE position AVANT d'effacer
+        //  l'ancienne : le curseur reste donc visible en permanence.
         if (need_recompose) {
             compose_back();
-            if (d_full || !d_any) blit_region(0, 0, (int)screen.width, (int)screen.height);
-            else blit_region(d_x0, d_y0, d_x1 - d_x0, d_y1 - d_y0);
+            if (d_full || !d_any) paint(0, 0, (int)screen.width, (int)screen.height, cx, cy);
+            else paint(d_x0, d_y0, d_x1 - d_x0, d_y1 - d_y0, cx, cy);
         }
-        if (cx != pcx || cy != pcy) blit_region(pcx, pcy, 8, 8);   // efface l'ancien (déplacement)
-        draw_cursor_screen(cx, cy);                                // retrace le curseur (toujours)
-        pcx = cx; pcy = cy;
-        // Le framebuffer est en Write-Combining : les petites écritures (curseur)
-        // peuvent rester dans le tampon WC du CPU et n'atteindre la VRAM qu'au
-        // prochain remplissage -> curseur qui clignote. SFENCE vide ce tampon, donc
-        // le curseur (et tout le reste) devient visible immédiatement à chaque trame.
+        if (cx != pcx || cy != pcy) {
+            paint(cx, cy, 8, 8, cx, cy);          // nouvelle position D'ABORD (curseur dessiné)
+            paint(pcx, pcy, 8, 8, cx, cy);        // efface l'ancienne (curseur déjà ailleurs)
+            pcx = cx; pcy = cy;
+        } else if (!need_recompose) {
+            paint(cx, cy, 8, 8, cx, cy);          // au repos : confirme le curseur (idempotent)
+        }
+        // Framebuffer en Write-Combining : SFENCE vide le tampon WC du CPU pour que
+        // tout (curseur compris) atteigne la VRAM immédiatement.
         __asm__ volatile ("sfence" ::: "memory");
         sys_yield();                     // commutation coopérative (pas de busy-poll)
     }
