@@ -1,12 +1,13 @@
 // =============================================================================
-//  user/lib/tls.c -- Client TLS 1.3 (ring 3) : X25519 + ChaCha20-Poly1305-SHA256
+//  user/lib/tls.c -- Client TLS 1.3 (ring 3)
 // -----------------------------------------------------------------------------
-//  Implemente le strict necessaire d'un client HTTPS : handshake 1-RTT, schedule
-//  de cles (HKDF), couche d'enregistrement chiffree (AEAD). S'appuie sur les
-//  sockets TCP non bloquantes du noyau (sys_tcp_*) et sur Monocypher + SHA-256.
+//  Handshake 1-RTT complet : echange de cles X25519 + secp256r1 (ECDHE), suites
+//  TLS_AES_128_GCM_SHA256 et TLS_CHACHA20_POLY1305_SHA256, schedule de cles
+//  (HKDF), couche d'enregistrement chiffree (AEAD). S'appuie sur les sockets TCP
+//  non bloquantes du noyau (sys_tcp_*) et sur Monocypher + SHA-256.
 //
-//  NON FAIT (assume) : verification du certificat serveur (RSA/ECDSA + X.509 +
-//  magasin d'AC). La session est chiffree mais NON authentifiee.
+//  La chaine de certificats est VERIFIEE (RSA PKCS#1/PSS + ECDSA P-256/P-384 +
+//  X.509 + magasin d'AC racines) : la session est chiffree ET authentifiee.
 // =============================================================================
 #include "monos.h"
 #include "tls.h"
@@ -313,6 +314,50 @@ static int verify_chain(const char *host, char *info) {
     return 0;
 }
 
+// --- Décodage des alertes (RFC 8446 §6) pour un diagnostic précis ------------
+//  Une alerte fatale reçue à la place du ServerHello indique POURQUOI le serveur
+//  a rejeté notre ClientHello (groupe/suite incompatibles, extension manquante…).
+static const char *alert_name(int code) {
+    switch (code) {
+        case 0:   return "close_notify";
+        case 10:  return "unexpected_message";
+        case 20:  return "bad_record_mac";
+        case 40:  return "handshake_failure";
+        case 42:  return "bad_certificate";
+        case 43:  return "unsupported_certificate";
+        case 46:  return "certificate_unknown";
+        case 47:  return "illegal_parameter";
+        case 48:  return "unknown_ca";
+        case 50:  return "decode_error";
+        case 51:  return "decrypt_error";
+        case 70:  return "protocol_version";
+        case 71:  return "insufficient_security";
+        case 80:  return "internal_error";
+        case 86:  return "inappropriate_fallback";
+        case 109: return "missing_extension";
+        case 110: return "unsupported_extension";
+        case 112: return "unrecognized_name";
+        case 116: return "certificate_required";
+        case 120: return "no_application_protocol";
+        default:  return "inconnu";
+    }
+}
+static char g_alertmsg[80];
+static const char *alert_msg(const char *where, const uint8_t *body, int n) {
+    int desc = (n >= 2) ? body[1] : -1;
+    const char *nm = (desc >= 0) ? alert_name(desc) : "vide";
+    char *p = g_alertmsg;
+    const char *a = "alerte TLS ("; while (*a) *p++ = *a++;
+    while (*where) *p++ = *where++;
+    a = ") code "; while (*a) *p++ = *a++;
+    if (desc < 0) *p++ = '?';
+    else { char t[4]; int ti = 0, d = desc; if (!d) t[ti++] = '0'; while (d) { t[ti++] = (char)('0' + d % 10); d /= 10; } while (ti) *p++ = t[--ti]; }
+    *p++ = ' '; *p++ = '(';
+    while (*nm) *p++ = *nm++;
+    *p++ = ')'; *p = 0;
+    return g_alertmsg;
+}
+
 // --- Handshake ---------------------------------------------------------------
 static uint8_t recbody[18000];
 static uint8_t hsacc[20000];
@@ -346,12 +391,21 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
         int r = read_record(conn, hdr, recbody, &blen, dl);
         if (r) { if (err) *err = "pas de ServerHello (timeout/fermeture)"; return -1; }
         if (hdr[0] == CT_CCS) continue;
-        if (hdr[0] == CT_ALERT) { if (err) *err = "alerte TLS pendant ServerHello"; return -1; }
+        if (hdr[0] == CT_ALERT) { if (err) *err = alert_msg("ServerHello", recbody, blen); return -1; }
         if (hdr[0] == CT_HANDSHAKE) break;
         if (err) *err = "type d'enregistrement inattendu";
         return -1;
     }
     if (blen < 38 || recbody[0] != HS_SERVER_HELLO) { if (err) *err = "ServerHello invalide"; return -1; }
+    // HelloRetryRequest = ServerHello avec un aléa magique fixe (RFC 8446 §4.1.4).
+    // Non géré (on offre déjà x25519+secp256r1) : on le signale clairement.
+    {
+        static const uint8_t hrr[32] = {
+            0xCF,0x21,0xAD,0x74,0xE5,0x9A,0x61,0x11,0xBE,0x1D,0x8C,0x02,0x1E,0x65,0xB8,0x91,
+            0xC2,0xA2,0x11,0x16,0x7A,0xBB,0x8C,0x5E,0x07,0x9E,0x09,0xE2,0xC8,0xA8,0x33,0x9C };
+        int same = 1; for (int i = 0; i < 32; i++) if (recbody[6+i] != hrr[i]) { same = 0; break; }
+        if (same) { if (err) *err = "HelloRetryRequest (groupe demandé non géré)"; return -1; }
+    }
     int shlen = (recbody[1] << 16) | (recbody[2] << 8) | recbody[3];
     sha256_update(&th, recbody, 4 + shlen);                 // transcript += SH
 
@@ -416,7 +470,7 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
         int pl = ctlen; while (pl > 0 && pt[pl-1] == 0) pl--;
         if (pl == 0) continue;
         int itype = pt[pl-1]; int ilen = pl - 1;
-        if (itype == CT_ALERT) { if (err) *err = "alerte TLS (handshake)"; return -1; }
+        if (itype == CT_ALERT) { if (err) *err = alert_msg("handshake", pt, ilen); return -1; }
         if (itype != CT_HANDSHAKE) continue;
         if (hslen + ilen > (int)sizeof(hsacc)) { if (err) *err = "flight trop grand"; return -1; }
         memcpy(hsacc + hslen, pt, ilen); hslen += ilen;
