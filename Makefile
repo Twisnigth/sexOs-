@@ -85,6 +85,9 @@ $(ISO): $(KERNEL) boot/limine.conf $(LIMINE)
 	mkdir -p $(ISODIR)/boot/limine $(ISODIR)/EFI/BOOT
 	cp $(KERNEL) $(ISODIR)/boot/kernel.elf
 	cp boot/limine.conf $(ISODIR)/boot/limine/
+	@# Module : binaire Linux statique busybox (musl, construit dans user/).
+	@if [ -f user/busybox ]; then cp user/busybox $(ISODIR)/boot/busybox; \
+	 else echo "(user/busybox absent : module non inclus)"; fi
 	cp $(LIMINE_DIR)/limine-bios.sys $(ISODIR)/boot/limine/
 	cp $(LIMINE_DIR)/limine-bios-cd.bin $(ISODIR)/boot/limine/
 	cp $(LIMINE_DIR)/limine-uefi-cd.bin $(ISODIR)/boot/limine/

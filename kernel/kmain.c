@@ -30,6 +30,8 @@
 #include "net.h"
 #include "crypto.h"
 #include "ssh.h"
+#include "proc.h"
+#include "test_user_bin.h"
 #include "desktop.h"
 
 // -----------------------------------------------------------------------------
@@ -57,6 +59,22 @@ __attribute__((used, section(".limine_requests")))
 static volatile struct limine_rsdp_request rsdp_request = {
     .id = LIMINE_RSDP_REQUEST, .revision = 0,
 };
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_module_request module_request = {
+    .id = LIMINE_MODULE_REQUEST, .revision = 0,
+};
+
+// Recherche un module chargé par Limine par son nom de fichier.
+void *boot_module(const char *name, uint64_t *size) {
+    if (!module_request.response) return NULL;
+    for (uint64_t i = 0; i < module_request.response->module_count; i++) {
+        struct limine_file *f = module_request.response->modules[i];
+        const char *base = f->path;
+        for (const char *p = f->path; *p; p++) if (*p == '/') base = p + 1;
+        if (strcmp(base, name) == 0) { if (size) *size = f->size; return f->address; }
+    }
+    return NULL;
+}
 
 __attribute__((used, section(".limine_requests_end")))
 static volatile LIMINE_REQUESTS_END_MARKER;
@@ -107,8 +125,22 @@ static void draw_splash(void) {
 // -----------------------------------------------------------------------------
 //  Point d'entrée
 // -----------------------------------------------------------------------------
+// Active SSE/SSE2 (les binaires Linux compilés normalement en ont besoin).
+static void enable_sse(void) {
+    uint64_t cr0, cr4;
+    __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
+    cr0 &= ~(1ULL << 2);            // EM = 0 (pas d'émulation x87)
+    cr0 |=  (1ULL << 1);            // MP = 1
+    __asm__ volatile ("mov %0, %%cr0" : : "r"(cr0));
+    __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
+    cr4 |= (1ULL << 9) | (1ULL << 10);   // OSFXSR | OSXMMEXCPT
+    __asm__ volatile ("mov %0, %%cr4" : : "r"(cr4));
+    __asm__ volatile ("fninit");
+}
+
 void kmain(void) {
     serial_init();
+    enable_sse();
     kprintf("\n=== MonOS v2 : demarrage du noyau ===\n");
 
     if (!LIMINE_BASE_REVISION_SUPPORTED) {
@@ -148,6 +180,12 @@ void kmain(void) {
     // --- Cryptographie (CSPRNG + validation par vecteurs de test) ------------
     csprng_init();
     crypto_selftest();
+
+    // --- Ring 3 + binaires ELF Linux (Phase 4) -------------------------------
+    syscall_init();
+    const char *av1[] = { "test" };
+    int rc = proc_run(test_user_elf, test_user_elf_len, 1, av1);
+    kprintf("[proc] binaire musl-libc de test termine, code = %d\n", rc);
 
     // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
     net_init();

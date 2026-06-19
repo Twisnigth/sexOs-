@@ -16,6 +16,8 @@
 #include "rtc.h"
 #include "net.h"
 #include "ssh.h"
+#include "proc.h"
+#include "boot.h"
 #include "io.h"
 
 #define TCOLS 80
@@ -37,7 +39,7 @@ typedef struct {
 
 // Liste des commandes intégrées (triée, sert aussi à la complétion).
 static const char *BUILTINS[] = {
-    "about","cat","cd","clear","date","echo","help","ifconfig","ls",
+    "about","bb","busybox","cat","cd","clear","date","echo","help","ifconfig","ls",
     "mkdir","nslookup","ping","pwd","reboot","rm","ssh","sysinfo","touch","wget","whoami"
 };
 #define NBUILTINS (int)(sizeof(BUILTINS)/sizeof(BUILTINS[0]))
@@ -429,6 +431,41 @@ usage:
     term_print(t, "usage: ssh hote[:port] utilisateur motdepasse commande\n");
 }
 
+// --- busybox : exécution d'un binaire Linux statique (ring 3) ----------------
+static term_t *bb_term;
+static void bb_output(const char *s, int n) {
+    if (!bb_term) return;
+    for (int i = 0; i < n; i++) if (s[i] != '\r') term_putc(bb_term, s[i]);
+}
+
+static void cmd_bb(term_t *t, char *arg) {
+    uint64_t sz = 0;
+    void *bb = boot_module("busybox", &sz);
+    if (!bb) { term_print(t, "busybox indisponible (module non charge)\n"); return; }
+
+    // Découpe les arguments (séparés par des espaces).
+    static char av[16][64];
+    const char *argv[16];
+    int argc = 0;
+    const char *p = arg;
+    while (*p && argc < 16) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        int k = 0;
+        while (*p && *p != ' ' && k < 63) av[argc][k++] = *p++;
+        av[argc][k] = 0;
+        argv[argc] = av[argc];
+        argc++;
+    }
+    if (argc == 0) { static const char *def = "busybox"; argv[0] = def; argc = 1; }
+
+    bb_term = t;
+    proc_set_output(bb_output);
+    proc_run(bb, sz, argc, argv);
+    proc_set_output(0);          // retour au port série par défaut
+    bb_term = 0;
+}
+
 static void term_run(term_t *t, char *line) {
     while (*line == ' ') line++;
     char *arg = line;
@@ -455,6 +492,7 @@ static void term_run(term_t *t, char *line) {
     else if (strcmp(cmd, "nslookup") == 0) cmd_nslookup(t, arg);
     else if (strcmp(cmd, "wget") == 0) cmd_wget(t, arg);
     else if (strcmp(cmd, "ssh") == 0) cmd_ssh(t, arg);
+    else if (strcmp(cmd, "bb") == 0 || strcmp(cmd, "busybox") == 0) cmd_bb(t, arg);
     else if (strcmp(cmd, "about") == 0) cmd_about(t);
     else if (strcmp(cmd, "reboot") == 0) { term_print(t, "redemarrage...\n"); outb(0x64, 0xFE); }
     else { term_print(t, cmd); term_print(t, ": commande inconnue\n"); }

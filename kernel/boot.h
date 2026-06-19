@@ -11,6 +11,7 @@ uint64_t                        boot_hhdm_offset(void);   // décalage de la fen
 struct limine_memmap_response  *boot_memmap(void);        // carte mémoire
 struct limine_framebuffer      *boot_framebuffer(void);   // 1er framebuffer
 void                           *boot_rsdp(void);          // pointeur ACPI RSDP
+void                           *boot_module(const char *name, uint64_t *size); // module Limine
 
 // Conversion adresse physique <-> virtuelle via la fenêtre HHDM.
 static inline void *phys_to_virt(uint64_t phys) {

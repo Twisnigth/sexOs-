@@ -26,3 +26,7 @@ legacy/vga*
 # Garder les captures de documentation
 !docs/
 !docs/*.png
+
+# Binaires utilisateur regenerables (sources conservees)
+user/test_user
+user/hello_musl
