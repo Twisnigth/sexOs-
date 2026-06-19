@@ -15,8 +15,21 @@ Contenu :
 Dans ce dossier :
 
 ```bash
-python3 -m http.server 8000
+python3 -m http.server 8000      # Linux / macOS
+python  -m http.server 8000      # Windows (si Python est installé)
 ```
+
+### Windows sans Python (le plus simple)
+Si `python` renvoie le message du Microsoft Store, utilisez le script PowerShell
+fourni. Clic droit sur **PowerShell → Exécuter en tant qu'administrateur**, placez-
+vous dans ce dossier (`cd C:\chemin\vers\repo`), puis :
+
+```powershell
+powershell -ExecutionPolicy Bypass -File serve.ps1
+```
+
+Il affiche les adresses IP à utiliser côté MonOS. (Le mode administrateur est
+nécessaire pour que la VM puisse joindre l'hôte.)
 
 Laissez cette fenêtre ouverte : c'est votre « miroir » de paquets.
 
