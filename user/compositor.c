@@ -304,6 +304,11 @@ int main(void) {
         if (cx != pcx || cy != pcy) blit_region(pcx, pcy, 8, 8);   // efface l'ancien (déplacement)
         draw_cursor_screen(cx, cy);                                // retrace le curseur (toujours)
         pcx = cx; pcy = cy;
+        // Le framebuffer est en Write-Combining : les petites écritures (curseur)
+        // peuvent rester dans le tampon WC du CPU et n'atteindre la VRAM qu'au
+        // prochain remplissage -> curseur qui clignote. SFENCE vide ce tampon, donc
+        // le curseur (et tout le reste) devient visible immédiatement à chaque trame.
+        __asm__ volatile ("sfence" ::: "memory");
         sys_yield();                     // commutation coopérative (pas de busy-poll)
     }
 }
