@@ -79,7 +79,7 @@ $(OBJDIR)/%.bin: user_tests/%.asm
 # ---- Runtime + programmes userspace en C (ring 3, ELF) ----------------------
 UCFLAGS  := -Wall -ffreestanding -fno-stack-protector -fno-pic -fno-pie -m64 \
             -march=x86-64 -mno-sse -mno-mmx -mno-80387 -mno-red-zone -O2 \
-            -I$(KDIR) -Iuser/lib
+            -I$(KDIR) -Iuser/lib -I$(MCDIR)
 ULDFLAGS := -m elf_x86_64 -nostdlib -static --build-id=none -T user/user.ld
 
 $(OBJDIR)/u_crt0.o: user/lib/crt0.asm
@@ -132,9 +132,15 @@ $(OBJDIR)/files.elf: $(OBJDIR)/u_files.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_files.o $(APPLIBS)
 $(OBJDIR)/monitor.elf: $(OBJDIR)/u_monitor.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_monitor.o $(APPLIBS)
-# Navigateur web : client compositeur + pile réseau (HTTP en espace utilisateur).
-$(OBJDIR)/web.elf: $(OBJDIR)/u_web.o $(OBJDIR)/u_http.o $(APPLIBS) user/user.ld
-	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_web.o $(OBJDIR)/u_http.o $(APPLIBS)
+# Monocypher recompilé pour l'espace utilisateur (X25519, ChaCha20, Poly1305).
+$(OBJDIR)/u_monocypher.o: $(MCDIR)/monocypher.c
+	@mkdir -p $(OBJDIR)
+	$(CC) $(UCFLAGS) -c $< -o $@
+# Navigateur web : compositeur + pile réseau + TLS 1.3 (HTTP/HTTPS en ring 3).
+WEB_OBJS := $(OBJDIR)/u_web.o $(OBJDIR)/u_http.o $(OBJDIR)/u_tls.o \
+            $(OBJDIR)/u_monocypher.o $(OBJDIR)/uk_sha256.o
+$(OBJDIR)/web.elf: $(WEB_OBJS) $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(WEB_OBJS) $(APPLIBS)
 
 # user_blobs.asm incbin les binaires : dépendance explicite (prioritaire sur le
 # motif générique ci-dessus).

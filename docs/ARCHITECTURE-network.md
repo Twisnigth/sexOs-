@@ -89,11 +89,45 @@ système). Aucune application ne bloque le système ; aucune ne sonde le NIC.
   implémentée et exercée ; atteindre un site public dépend d'un accès sortant de
   l'hyperviseur (NAT SLIRP) et n'est pas garanti dans tous les environnements.
 
+## TLS 1.3 / HTTPS (ring 3)
+
+`user/lib/tls.c` ajoute un **client TLS 1.3** au-dessus des sockets, et `http.c`
+l'utilise automatiquement pour les URL `https://` (port 443 par défaut).
+
+- **Suite unique** : `TLS_CHACHA20_POLY1305_SHA256`, échange de clés **X25519**.
+  Compatible avec la majorité des serveurs modernes (CDN, etc.), qui acceptent
+  ChaCha20-Poly1305 + X25519. Les serveurs n'offrant qu'AES-GCM ou des courbes
+  NIST échoueront (AES non implémenté ici).
+- **Crypto réutilisée** : Monocypher (X25519, ChaCha20-IETF, Poly1305) recompilé
+  pour le ring 3, + le SHA-256 du noyau. AEAD RFC 8439 et **HKDF** (HMAC-SHA256,
+  `HKDF-Expand-Label`, key schedule complet) écrits dans `tls.c`. Aléa fourni par
+  un nouvel appel système `SYS_random` (CSPRNG du noyau).
+- **Handshake 1-RTT** : ClientHello (key_share X25519, SNI, signature_algorithms),
+  ServerHello, dérivation du secret partagé, déchiffrement AEAD du *flight*
+  chiffré (EncryptedExtensions, Certificate, CertificateVerify, Finished),
+  **vérification du Finished serveur**, envoi du Finished client, bascule sur les
+  clés applicatives. Couche d'enregistrement chiffrée (nonce = iv⊕seq, en-tête en
+  données associées).
+
+**Vérifié** : en QEMU, MonOS effectue le handshake complet contre un serveur
+**TLS 1.3 réel** (OpenSSL/Python, ChaCha20-Poly1305) et récupère
+`https://10.0.2.2:8443/` — `HTTP 200`, page rendue (cf. `docs/ring3-https.png`),
+zéro panique.
+
+> ⚠️ **Limite de sécurité importante** : le **certificat du serveur n'est PAS
+> vérifié** (ni signature RSA/ECDSA, ni magasin d'autorités, ni vérification du
+> nom). La session est donc **chiffrée mais NON authentifiée** : elle protège
+> contre l'écoute passive, **pas contre un homme du milieu actif**. À ne pas
+> utiliser pour des données sensibles tant que la vérification de chaîne n'est
+> pas implémentée.
+
 ## Reste à faire (périmètre assumé)
 
-- **HTTPS / TLS** : non supporté (les primitives crypto existent via Monocypher,
-  mais une pile TLS 1.2/1.3 complète est un chantier à part). Le navigateur le
-  signale clairement pour les URL `https://`.
+- **Vérification du certificat TLS** : nécessite RSA-PKCS1/PSS et/ou ECDSA P-256
+  (absents de Monocypher → arithmétique grands entiers à écrire), un analyseur
+  X.509/ASN.1 et un magasin d'autorités racines. C'est la prochaine étape pour
+  un HTTPS *authentifié*.
+- **AES-GCM** : pour interopérer avec les serveurs qui n'offrent pas ChaCha20.
 - **SSH** : le serveur est encore écrit en style **bloquant** et n'a pas été
   porté sur le modèle non bloquant de la tâche réseau ; il reste donc dormant
   pendant que le bureau tourne (à porter comme le client HTTP).

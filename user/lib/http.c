@@ -3,6 +3,7 @@
 // =============================================================================
 #include "monos.h"
 #include "http.h"
+#include "tls.h"
 
 void *memcpy(void *, const void *, unsigned long);
 unsigned long strlen(const char *);
@@ -49,13 +50,14 @@ int http_fetch(const char *url, char *body, int maxbody, int *status, const char
     if (err) *err = 0;
 
     const char *p = url;
+    int secure = 0;
     if (!strncmp(p, "http://", 7)) p += 7;
-    else if (!strncmp(p, "https://", 8)) { if (err) *err = "HTTPS non supporte (TLS a venir)"; return -1; }
+    else if (!strncmp(p, "https://", 8)) { p += 8; secure = 1; }
 
     char host[128]; int hi = 0;
     while (*p && *p != '/' && *p != ':' && hi < 127) host[hi++] = *p++;
     host[hi] = 0;
-    int port = 80;
+    int port = secure ? 443 : 80;
     if (*p == ':') { p++; port = 0; while (*p >= '0' && *p <= '9') port = port * 10 + (*p++ - '0'); }
     const char *path = (*p == '/') ? p : "/";
 
@@ -84,6 +86,12 @@ int http_fetch(const char *url, char *body, int maxbody, int *status, const char
         sys_yield();
     }
 
+    // --- TLS (handshake 1-RTT) si https:// -----------------------------------
+    static tls_t tls;
+    if (secure) {
+        if (tls_handshake(&tls, c, host, err) != 0) { sys_tcp_close(c); return -1; }
+    }
+
     // --- Requête GET ---------------------------------------------------------
     char req[700]; int o = 0;
     const char *a = "GET ";                       while (*a) req[o++] = *a++;
@@ -93,24 +101,29 @@ int http_fetch(const char *url, char *body, int maxbody, int *status, const char
     a = "\r\nUser-Agent: MonOS/2.0\r\nAccept: */*\r\nConnection: close\r\n\r\n";
     while (*a) req[o++] = *a++;
 
-    int sent = 0; dl = ms() + 5000;
-    while (sent < o) {
-        int n = sys_tcp_send(c, req + sent, o - sent);
-        if (n > 0) { sent += n; }
-        else if (n < 0) { sys_tcp_close(c); if (err) *err = "envoi echoue"; return -1; }
-        else { if (ms() > dl) { sys_tcp_close(c); if (err) *err = "envoi : delai"; return -1; } sys_yield(); }
+    if (secure) {
+        tls_send(&tls, req, o);                    // chiffré, envoie tout
+    } else {
+        int sent = 0; dl = ms() + 5000;
+        while (sent < o) {
+            int n = sys_tcp_send(c, req + sent, o - sent);
+            if (n > 0) { sent += n; }
+            else if (n < 0) { sys_tcp_close(c); if (err) *err = "envoi echoue"; return -1; }
+            else { if (ms() > dl) { sys_tcp_close(c); if (err) *err = "envoi : delai"; return -1; } sys_yield(); }
+        }
     }
 
     // --- Réception jusqu'à fermeture par le pair -----------------------------
     int total = 0; dl = ms() + 15000;
     for (;;) {
-        int n = sys_tcp_recv(c, raw + total, (int)sizeof(raw) - 1 - total);
+        int n = secure ? tls_recv(&tls, raw + total, (int)sizeof(raw) - 1 - total)
+                       : sys_tcp_recv(c, raw + total, (int)sizeof(raw) - 1 - total);
         if (n > 0) { total += n; dl = ms() + 15000; if (total >= (int)sizeof(raw) - 1) break; }
         else if (n < 0) break;                    // pair a fermé : fin de réponse
         else { if (ms() > dl) break; sys_yield(); }
     }
     raw[total] = 0;
-    sys_tcp_close(c);
+    if (secure) tls_close(&tls); else sys_tcp_close(c);
     if (total == 0) { if (err) *err = "aucune donnee recue"; return -1; }
 
     // --- Code de statut ------------------------------------------------------

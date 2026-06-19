@@ -29,7 +29,13 @@ une tâche réseau du noyau. Pour l'essayer en QEMU :
 1. sur l'hôte, servez un dossier : `python3 -m http.server 8000` ;
 2. lancez MonOS avec le réseau : `make run-net` ;
 3. dans le navigateur, l'adresse `http://10.0.2.2:8000/` pointe vers l'hôte
-   (passerelle SLIRP). HTTPS/TLS n'est pas encore supporté.
+   (passerelle SLIRP).
+
+**HTTPS / TLS 1.3** est géré (suite `TLS_CHACHA20_POLY1305_SHA256`, échange
+X25519) : les URL `https://` fonctionnent contre la plupart des serveurs
+modernes. ⚠️ Le **certificat n'est pas encore vérifié** : la connexion est
+chiffrée mais **non authentifiée** (pas de protection contre un homme du milieu
+actif). À ne pas utiliser pour des secrets réels en l'état.
 
 Côté noyau (exécuté au démarrage), l'image embarque aussi :
 - **Réseau** (e1000 + DHCP/DNS) : `ifconfig`, `ping`, `nslookup`, `wget`.

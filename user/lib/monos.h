@@ -78,5 +78,6 @@ static inline int  sys_tcp_state(int id)                { return (int)_sc1(SYS_t
 static inline int  sys_tcp_send(int id, const void *b, int n) { return (int)_sc3(SYS_tcp_send, id, (long)b, n); }
 static inline int  sys_tcp_recv(int id, void *b, int n) { return (int)_sc3(SYS_tcp_recv, id, (long)b, n); }
 static inline void sys_tcp_close(int id)                { _sc1(SYS_tcp_close, id); }
+static inline void sys_random(void *b, unsigned long n) { _sc2(SYS_random, (long)b, (long)n); }
 
 #endif
