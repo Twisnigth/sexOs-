@@ -20,4 +20,8 @@ void win_damage(void);
 //  -1 = le compositeur demande la fermeture (l'app doit quitter)
 int win_poll(event_t *ev);
 
+// Bloque jusqu'à un événement (l'appli dort en attendant). Mêmes codes de retour
+// que win_poll, mais ne renvoie jamais 0.
+int win_wait(event_t *ev);
+
 #endif

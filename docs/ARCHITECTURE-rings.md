@@ -68,33 +68,38 @@ Natifs MonOS (≥ 0x200, cf. `kernel/syscalls.h`) : `get_cpl (0x200)`,
   cède la main à l'ordonnanceur (`sched_start`). Plus de `desktop_run` en ring 0.
 - ✅ **Le bureau entier (compositeur + WM + 5 applications) tourne en ring 3.**
 
-## Découpage en processus séparés (IPC) — EN COURS
+## Découpage en processus séparés (IPC) — FAIT et stable
 
-L'infrastructure d'un vrai serveur d'affichage multi-processus est en place :
+Le bureau peut tourner en **plusieurs processus ring 3 distincts** reliés par IPC :
 - **Syscalls IPC** (`kernel/proc.c`, `kernel/syscalls.h`) : `ipc_send`/`ipc_recv`
-  (messagerie par mailbox par tâche), `shm_create`/`shm_map` (mémoire partagée
-  entre espaces d'adressage), `comp_register`/`comp_pid`.
-- **Compositeur serveur** (`user/compositor.c`) : possède le framebuffer + les
-  entrées, alloue un tampon partagé (shm) par fenêtre, route les événements.
-- **Bibliothèque cliente** (`user/lib/libwin.c`) + **applications séparées**
-  (`user/app_clock.c`, `app_hello.c`, `app_crash.c`), chacune un processus ring 3.
+  (messagerie par mailbox par tâche), **`ipc_wait`** (attente BLOQUANTE — la tâche
+  dort jusqu'à un message), **`yield`** (commutation coopérative), `shm_create`/
+  `shm_map` (mémoire partagée entre espaces), `comp_register`/`comp_pid`.
+- **Entrée syscall unifiée** (`usermode.asm`) : `syscall_entry` construit un
+  `registers_t` identique à celui des interruptions, ce qui permet à un appel
+  système de **bloquer ou céder** proprement (sauvegarde/reprise de contexte).
+- **Compositeur serveur** (`user/compositor.c`, un processus) : possède le
+  framebuffer + les entrées, alloue un tampon partagé (shm) par fenêtre, route
+  les événements vers la fenêtre au focus, gère déplacement/focus/fermeture.
+- **Bibliothèque cliente** (`user/lib/libwin.c`) + **applications, chacune un
+  PROCESSUS** : `app_clock` (se rafraîchit via `yield`), `app_hello` (DORT sur
+  `ipc_wait` jusqu'aux événements), `app_crash` (déréférence NULL pour prouver
+  l'isolation).
 
-État **honnête** : ça fonctionne **partiellement** — plusieurs processus
-séparés se créent, communiquent par IPC (vérifié : des applis reçoivent bien
-leur réponse de création de fenêtre du compositeur via mailbox) et dessinent
-dans une mémoire partagée. **Mais ce n'est pas encore stable** : le modèle de
-sondage actif (busy-poll) des applis crée des courses avec la préemption (une
-appli reste parfois bloquée, glitch d'affichage occasionnel). La correction
-propre est une **IPC bloquante** (une tâche en attente de message dort et est
-réveillée à la livraison), ce qui exige d'unifier l'entrée syscall avec la
-sauvegarde de contexte des interruptions — un chantier conséquent non terminé.
-
-Par sécurité, le **boot par défaut lance le bureau mono-processus stable**
-(Phase 3). Le code multi-processus reste dans l'arbre pour la suite.
+Vérifié en QEMU (`docs/ring3-multiproc*.png`) :
+- 3 fenêtres provenant de 3 **processus séparés**, dessinées via mémoire
+  partagée et composées par le compositeur ; focus / z-order / déplacement OK.
+- l'horloge avance en continu (compositeur + horloge bien vivants) ;
+- **`app_crash` déréférence NULL → le noyau le TUE (kill-on-fault) → le
+  compositeur et les autres applications continuent** (aucun plantage système).
+- modèle **sans sondage actif** : les applis pilotées par les événements dorment
+  (`ipc_wait`) et sont réveillées à la livraison ; commutations coopératives.
 
 ## Reste à faire (honnêteté sur le périmètre)
 
-- **IPC bloquante** pour stabiliser le découpage en processus séparés (ci-dessus).
+- Nettoyage automatique de la fenêtre d'une application morte (sa dernière image
+  reste affichée — c'est volontairement visible comme preuve d'isolation).
+- `wait(pid)` côté parent, priorités d'ordonnancement, IPC zéro-copie plus riche.
 - **Commandes réseau / SSH / pacman / busybox du terminal** : indisponibles dans
   le bureau ring 3 (elles dépendent de pilotes noyau) ; elles nécessiteraient des
   syscalls réseau dédiés. Stubs pour l'instant.

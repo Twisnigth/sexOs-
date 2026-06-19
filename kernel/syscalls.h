@@ -11,11 +11,13 @@
 
 // --- Processus ---------------------------------------------------------------
 #define SYS_get_cpl     0x200      // renvoie le CPL courant (debug : 3 en ring 3)
+#define SYS_yield       0x204      // cède le CPU (commutation coopérative)
 // (exit/getpid réutilisent les numéros Linux 60/39)
 
 // --- IPC : messagerie + mémoire partagée -------------------------------------
 #define SYS_ipc_send    0x220      // ipc_send(dest_pid, buf, len)
-#define SYS_ipc_recv    0x221      // ipc_recv(buf, maxlen, *sender) -> len ou -1
+#define SYS_ipc_recv    0x221      // ipc_recv(buf, maxlen, *sender) -> len ou -1 (non bloquant)
+#define SYS_ipc_wait    0x226      // bloque jusqu'à l'arrivée d'un message
 #define SYS_shm_create  0x222      // shm_create(size, *out_va) -> shm_id
 #define SYS_shm_map     0x223      // shm_map(id, *out_va) -> 0/-1
 #define SYS_comp_register 0x224    // s'enregistre comme compositeur

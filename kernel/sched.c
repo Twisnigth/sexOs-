@@ -15,6 +15,7 @@
 extern void sched_resume(registers_t *ctx);        // reprend une tâche, sans retour
 extern void sched_save_and_run(registers_t *first); // sauve le noyau, lance la 1re
 extern void sched_return(void);                     // revient au noyau (mode démo)
+extern uint64_t kernel_rsp;                         // pile noyau de l'entrée syscall
 
 // --- MSR FS base (TLS par tâche) ---------------------------------------------
 #define MSR_FSBASE 0xC0000100
@@ -42,6 +43,8 @@ static task_t *idle_task;            // tâche noyau de repli (hlt)
 
 int     sched_active(void)  { return active; }
 task_t *sched_current(void) { return current; }
+
+static void back_to_kernel(void);     // défini plus bas (mode démo)
 
 // --- Création d'une tâche ----------------------------------------------------
 static task_t *alloc_slot(void) {
@@ -143,7 +146,26 @@ static void install(task_t *t) {
     t->state = TASK_RUNNING;
     vmm_switch(t->pml4);
     tss_set_rsp0(t->kstack_top);
+    kernel_rsp = t->kstack_top;        // l'entrée syscall utilise la pile de CETTE tâche
     wrmsr(MSR_FSBASE, t->fs_base);
+}
+
+// Appel système bloquant / yield / exit : le contexte de la tâche courante est
+// sauvegardé dans r (et son état déjà positionné par l'appelant). On choisit la
+// tâche suivante et on renvoie son contexte à reprendre.
+registers_t *sched_switch_from(registers_t *r) {
+    if (current) current->ctx = (uint64_t)r;
+    task_t *n = pick_next();
+    if (!n) {
+        if (idle_task) n = idle_task;     // modèle final : tâche idle
+        else back_to_kernel();            // mode démo : retour au noyau (ne revient pas)
+    }
+    install(n);
+    return (registers_t *)n->ctx;
+}
+
+void sched_wake(task_t *t) {
+    if (t && t->state == TASK_BLOCKED) t->state = TASK_READY;
 }
 
 // Repli vers le noyau quand plus aucune tâche n'est prête (mode démo).

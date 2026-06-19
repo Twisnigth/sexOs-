@@ -112,6 +112,41 @@ void syscall_init(void) {
 #define SYS_openat 257
 #define SYS_set_robust_list 273
 
+long syscall_dispatch(sysargs_t *a);     // défini plus bas
+
+// Point d'entrée unifié des appels système (cf. usermode.asm). Reçoit le
+// contexte complet de la tâche et renvoie le contexte à reprendre : la MÊME
+// tâche pour un appel normal, une AUTRE pour yield / attente bloquante / exit.
+registers_t *syscall_enter(registers_t *r) {
+    task_t *me = sched_current();
+    switch (r->rax) {
+    case SYS_yield:
+        if (me) me->state = TASK_READY;
+        return sched_switch_from(r);
+    case SYS_ipc_wait:
+        if (me && me->mbox_head == me->mbox_tail) {  // boîte vide -> on dort
+            me->state = TASK_BLOCKED;
+            return sched_switch_from(r);
+        }
+        r->rax = 0;
+        return r;
+    case SYS_exit: case SYS_exit_group:
+        if (sched_active() && me) {
+            me->exit_code = (int)r->rdi;
+            me->state = TASK_ZOMBIE;
+            return sched_switch_from(r);
+        }
+        exit_code = (int)r->rdi;
+        user_exit();                                  // legacy proc_run (ne revient pas)
+        return r;
+    default: {
+        sysargs_t a = { r->rax, r->rdi, r->rsi, r->rdx, r->r10, r->r8, r->r9 };
+        r->rax = (uint64_t)syscall_dispatch(&a);
+        return r;
+    }
+    }
+}
+
 long syscall_dispatch(sysargs_t *a) {
     // L'appel système s'exécute dans l'espace d'adressage de l'appelant : on
     // mappe toujours dans le PML4 courant (correct pour CHAQUE tâche ordonnancée,
@@ -241,6 +276,7 @@ long syscall_dispatch(sysargs_t *a) {
         m->sender = me ? me->pid : 0; m->len = len;
         memcpy(m->data, (const void *)a->rsi, len);
         dst->mbox_tail = nxt;
+        sched_wake(dst);                 // réveille la tâche si elle dormait
         return 0;
     }
     case SYS_ipc_recv: {

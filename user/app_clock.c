@@ -14,7 +14,9 @@ int main(void) {
     if (!c) return 1;
     uint64_t last = (uint64_t)-1;
     for (;;) {
-        event_t e; if (win_poll(&e) < 0) sys_exit(0);
+        // Vide les événements (sans bloquer : l'horloge doit se rafraîchir seule).
+        event_t e; int r;
+        while ((r = win_poll(&e)) != 0) { if (r < 0) sys_exit(0); }
         uint64_t s = sys_time_ms() / 1000;
         if (s != last) {
             last = s;
@@ -27,6 +29,6 @@ int main(void) {
             canvas_draw_string(c, b, 14, 34, rgb(0x6e, 0xe7, 0x9a), 2);
             win_damage();
         }
-        for (volatile int k = 0; k < 300000; k++) {}
+        sys_yield();                               // cède le CPU (commutation propre)
     }
 }

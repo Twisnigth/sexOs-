@@ -20,7 +20,7 @@
 #define IPC_MBOX_LEN 32        // messages en attente par tâche
 typedef struct { int sender; int len; uint8_t data[IPC_MSG_MAX]; } ipc_msg_t;
 
-typedef enum { TASK_UNUSED = 0, TASK_READY, TASK_RUNNING, TASK_ZOMBIE } task_state_t;
+typedef enum { TASK_UNUSED = 0, TASK_READY, TASK_RUNNING, TASK_BLOCKED, TASK_ZOMBIE } task_state_t;
 
 typedef struct task {
     int          pid;
@@ -41,6 +41,13 @@ typedef struct task {
 
 // IPC : recherche d'une tâche par pid (pour la livraison de messages).
 task_t *sched_task_by_pid(int pid);
+
+// La tâche courante a changé d'état (BLOCKED/READY/ZOMBIE) et son contexte est
+// déjà sauvegardé dans 'r' : choisit la tâche suivante et renvoie son contexte.
+// Utilisé par les appels système bloquants / yield / exit.
+registers_t *sched_switch_from(registers_t *r);
+// Réveille une tâche bloquée (l'a remet prête).
+void sched_wake(task_t *t);
 
 // Crée une tâche ring 3 à partir d'un binaire « plat » chargé à 0x400000.
 int  sched_new_flat_task(const char *name, const uint8_t *code, size_t len);

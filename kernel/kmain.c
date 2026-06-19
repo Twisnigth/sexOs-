@@ -213,14 +213,21 @@ void kmain(void) {
     vfs_init();
     users_init();
 
-    // --- Le BUREAU démarre en RING 3 ----------------------------------------
-    //  Modèle stable : compositeur + WM + applications dans UN processus ring 3.
-    //  (Le découpage en processus séparés reliés par IPC est en cours dans
-    //  user/compositor.c + user/app_*.c ; voir docs/ARCHITECTURE-rings.md.)
+    // --- Bureau MULTI-PROCESSUS en RING 3 (isolation par processus, IPC) -----
+    //  Le compositeur et CHAQUE application sont des PROCESSUS ring 3 distincts,
+    //  reliés par messagerie + mémoire partagée. IPC BLOQUANTE : une tâche en
+    //  attente d'événement dort (pas de sondage actif) et est réveillée à la
+    //  livraison. Un crash d'appli est contenu par le noyau (kill-on-fault).
     {
-        extern uint8_t udesk_start[], udesk_end[];
-        kprintf("[boot] lancement du bureau en ring 3\n");
-        sched_new_elf_task("bureau", udesk_start, (size_t)(udesk_end - udesk_start));
+        extern uint8_t ucomp_start[], ucomp_end[];
+        extern uint8_t uclock_start[], uclock_end[];
+        extern uint8_t uhello_start[], uhello_end[];
+        extern uint8_t ucrash_start[], ucrash_end[];
+        kprintf("[boot] lancement du compositeur + applications (ring 3, IPC)\n");
+        sched_new_elf_task("compositeur", ucomp_start, (size_t)(ucomp_end - ucomp_start));
+        sched_new_elf_task("horloge", uclock_start, (size_t)(uclock_end - uclock_start));
+        sched_new_elf_task("bonjour", uhello_start, (size_t)(uhello_end - uhello_start));
+        sched_new_elf_task("crash", ucrash_start, (size_t)(ucrash_end - ucrash_start));
     }
     sched_start();                          // ne revient jamais
 

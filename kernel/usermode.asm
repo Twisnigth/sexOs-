@@ -57,36 +57,57 @@ enter_user:
     iretq
 
 ; Point d'entrée de l'instruction syscall (ring 0).
+;  Construit un registers_t IDENTIQUE à celui des interruptions (cf. isr.asm) sur
+;  la pile noyau de la tâche, puis appelle syscall_enter(registers_t*) qui renvoie
+;  le contexte à reprendre (la MÊME tâche, ou une AUTRE si l'appel bloque/cède).
+extern syscall_enter
 syscall_entry:
-    mov [user_rsp], rsp
-    mov rsp, [kernel_rsp]       ; bascule sur la pile noyau dédiée
-    mov [ret_rip], rcx          ; syscall : RCX = adresse de retour
-    mov [ret_rflags], r11       ;          R11 = RFLAGS
-
-    ; Empile les arguments dans l'ordre de la struct sysargs (rax en tête).
-    push r9
-    push r8
-    push r10
+    mov [user_rsp], rsp         ; sauve la pile utilisateur (IF=0 : atomique)
+    mov rsp, [kernel_rsp]       ; pile noyau de la tâche courante
+    ; Cadre iretq (ss, rsp, rflags, cs, rip) + err/int factices.
+    push USER_SS
+    push qword [user_rsp]
+    push r11                    ; RFLAGS sauvegardé par syscall
+    push USER_CS
+    push rcx                    ; RIP de retour sauvegardé par syscall
+    push qword 0                ; err_code
+    push qword 0                ; int_no (0 = appel système)
+    ; Registres généraux (même ordre que isr_common).
+    push rax
+    push rbx
+    push rcx
     push rdx
     push rsi
     push rdi
-    push rax
-    mov rdi, rsp                ; 1er argument C = pointeur sur sysargs
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
     cld
-    call syscall_dispatch
-    mov [retval], rax
-
-    add rsp, 56                 ; dépile les 7 registres sauvegardés
-    ; retour en ring 3 via iretq
-    mov ax, USER_SS
-    mov ds, ax
-    mov es, ax
-    push USER_SS
-    push qword [user_rsp]
-    push qword [ret_rflags]
-    push USER_CS
-    push qword [ret_rip]
-    mov rax, [retval]
+    mov rdi, rsp                ; registers_t* courant
+    call syscall_enter         ; -> registers_t* à reprendre (rax)
+    mov rsp, rax
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+    add rsp, 16                 ; saute int_no + err_code
     iretq
 
 ; void user_exit(void) -- restaure le contexte noyau et retourne dans enter_user.

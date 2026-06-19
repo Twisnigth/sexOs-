@@ -114,11 +114,17 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
   (framebuffer, entrées, horloge, infos système). Vérifié : `info registers`
   montre `CPL=3, CS=0x1b` quand le bureau est actif. Voir
   `docs/ring3-desktop-apps.png`.
-- ⚠️ **Limites** : le bureau est un **seul** processus ring 3 (compositeur + applis
-  ensemble — l'isolation par processus séparés via IPC reste à faire) ; le terminal
-  perd ses commandes réseau/SSH/pacman/busybox en ring 3 (dépendent de pilotes
-  noyau) ; le VFS du bureau est distinct de celui du noyau. Détails et frontière
-  ring 0/ring 3 dans [`docs/ARCHITECTURE-rings.md`](docs/ARCHITECTURE-rings.md).
+- ✅ **Découpage en PROCESSUS séparés (IPC)** : un **compositeur** (processus) et
+  des **applications, chacune son propre processus ring 3**, reliés par messagerie
+  + mémoire partagée, avec **IPC bloquante** (les applis dorment en attendant les
+  événements). **Isolation réelle prouvée** : une appli qui déréférence NULL est
+  **tuée par le noyau** et le compositeur + les autres applis **continuent** (voir
+  `docs/ring3-multiproc.png`). Deux modèles cohabitent dans l'arbre : bureau
+  mono-processus complet (terminal/explorateur/…) **ou** compositeur + apps
+  séparées (boot par défaut). Frontière détaillée :
+  [`docs/ARCHITECTURE-rings.md`](docs/ARCHITECTURE-rings.md).
+- ⚠️ Le terminal perd ses commandes réseau/SSH/pacman/busybox en ring 3 ; le VFS
+  du bureau est distinct de celui du noyau.
 
 **Gestionnaire de paquets** (Phase 5) — style `pacman`
 - ✅ Commande `pacman` : `-Sy` (synchroniser la base du dépôt), `-S <pkg>`

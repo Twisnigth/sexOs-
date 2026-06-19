@@ -53,5 +53,7 @@ static inline int  sys_shm_map(int id, uint64_t *va) {
 }
 static inline void sys_comp_register(void) { _sc0(SYS_comp_register); }
 static inline int  sys_comp_pid(void)      { return (int)_sc0(SYS_comp_pid); }
+static inline void sys_yield(void)         { _sc0(SYS_yield); }
+static inline void sys_ipc_wait(void)      { _sc0(SYS_ipc_wait); }
 
 #endif

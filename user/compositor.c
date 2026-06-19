@@ -143,5 +143,6 @@ int main(void) {
         if (top_index >= 0 && wins[top_index].used) draw_window(&wins[top_index], 1);
         canvas_fill_rect(&back, cx, cy, 8, 8, rgb(255, 255, 255));   // curseur
         canvas_blit(&screen, &back, 0, 0);
+        sys_yield();                 // commutation coopérative (pas de busy-poll)
     }
 }

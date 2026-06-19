@@ -12,10 +12,8 @@ static int      comp_pid;
 static int      my_win, my_shm;
 static canvas_t wcanvas;
 
-static void spin(int n) { for (volatile int i = 0; i < n; i++) {} }
-
 static void wait_compositor(void) {
-    while (!(comp_pid = sys_comp_pid())) spin(200000);
+    while (!(comp_pid = sys_comp_pid())) sys_yield();   // coopératif (pas de busy-poll)
 }
 
 canvas_t *win_create(int w, int h, const char *title) {
@@ -25,7 +23,8 @@ canvas_t *win_create(int w, int h, const char *title) {
     int i = 0; while (title[i] && i < 31) { m.title[i] = title[i]; i++; } m.title[i] = 0;
     sys_ipc_send(comp_pid, &m, sizeof m);
 
-    for (;;) {                                   // attend la réponse WMSG_CREATED
+    for (;;) {                                   // attend (en dormant) WMSG_CREATED
+        sys_ipc_wait();                          // bloque jusqu'à un message
         wmsg_t r; int s;
         if (sys_ipc_recv(&r, sizeof r, &s) > 0 && r.type == WMSG_CREATED) {
             my_win = r.win; my_shm = r.shm;
@@ -35,6 +34,16 @@ canvas_t *win_create(int w, int h, const char *title) {
             wcanvas.width = (uint32_t)w; wcanvas.height = (uint32_t)h; wcanvas.pitch = (uint32_t)w * 4;
             return &wcanvas;
         }
+    }
+}
+
+// Bloque jusqu'à un événement, puis en renvoie un (pour les applis pilotées par
+// les événements). 1 = événement, -1 = fermeture demandée.
+int win_wait(event_t *ev) {
+    for (;;) {
+        sys_ipc_wait();
+        int r = win_poll(ev);
+        if (r != 0) return r;
     }
 }
 
