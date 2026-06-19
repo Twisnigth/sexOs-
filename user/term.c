@@ -8,6 +8,8 @@
 #include "libwin.h"
 #include "gfx.h"
 #include "input.h"
+#include "ascii_art.h"      // banniere « sexOs »
+#include "phallus_art.h"    // art (braille decode) pour la commande « Phallus »
 
 void *memset(void *, int, unsigned long);
 void *memcpy(void *, const void *, unsigned long);
@@ -128,7 +130,55 @@ static void cmd_sysinfo(void) {
 }
 static void cmd_help(void) {
     tprint("commandes : help clear echo ls cd pwd cat mkdir touch rm\n");
-    tprint("            whoami date sysinfo\n");
+    tprint("            whoami date sysinfo Phallus\n");
+}
+
+// --- « Phallus » : fastfetch (art en points a gauche + infos a droite) -------
+//  Rendu DIRECT sur le canvas (hors grille texte), puis attente d'une touche.
+static void draw_dot_art(int x0, int y0, int sc, uint32_t col) {
+    for (int y = 0; y < PHALLUS_H; y++) {
+        const char *row = phallus_art[y];
+        for (int x = 0; row[x]; x++)
+            if (row[x] == '#') canvas_fill_rect(cv, x0 + x*sc, y0 + y*sc, sc, sc, col);
+    }
+}
+static void info(int x, int y, const char *label, const char *val, uint32_t lc, uint32_t vc) {
+    canvas_draw_string(cv, label, x, y, lc, 1);
+    canvas_draw_string(cv, val, x + (int)strlen(label)*8, y, vc, 1);
+}
+static void cmd_phallus(void) {
+    uint32_t bg = rgb(0x0c,0x10,0x14), pink = rgb(0xff,0x7a,0xb0),
+             acc = rgb(0x6e,0xe7,0x9a), w = rgb(0xe6,0xec,0xf2), dim = rgb(0x8a,0x98,0xa6);
+    canvas_fill(cv, bg);
+    draw_dot_art(8, 28, 2, pink);                       // art a gauche (echelle 2)
+    int rx = 132, ry = 8;
+    for (int i = 0; i < SEXOS_BANNER_LINES; i++)
+        canvas_draw_string(cv, sexos_banner[i], rx, ry + i*16, pink, 1);
+    sysinfo_t s; sys_sysinfo(&s);
+    userinfo_t u; sys_whoami(&u);
+    netinfo_t ni; sys_net_info(&ni);
+    char b[80], n[24];
+    int y = ry + SEXOS_BANNER_LINES*16 + 12;
+    strcpy(b, u.name[0] ? u.name : "user"); strcat(b, "@sexos");
+    canvas_draw_string(cv, b, rx, y, acc, 1); y += 16;
+    canvas_draw_string(cv, "-----------------------", rx, y, dim, 1); y += 16;
+    info(rx,y,"OS:      ","sexOs v2 (x86_64)", acc, w); y += 16;
+    info(rx,y,"Noyau:   ","sexos 2.0", acc, w); y += 16;
+    info(rx,y,"Shell:   ","terminal (ring 3)", acc, w); y += 16;
+    info(rx,y,"Bureau:  ","compositeur ring 3", acc, w); y += 16;
+    utoa(s.uptime_s, n); strcpy(b, n); strcat(b, " s"); info(rx,y,"Uptime:  ", b, acc, w); y += 16;
+    utoa(s.mem_used_mb, n); strcpy(b, n); strcat(b, " / "); utoa(s.mem_total_mb, n); strcat(b, n); strcat(b, " Mio");
+    info(rx,y,"Memoire: ", b, acc, w); y += 16;
+    utoa(s.pci_count, n); info(rx,y,"PCI:     ", n, acc, w); y += 16;
+    if (ni.up && ni.ip) {
+        char ip[20]; ip[0] = 0;
+        for (int i = 3; i >= 0; i--) { utoa((ni.ip >> (i*8)) & 0xff, n); strcat(ip, n); if (i) strcat(ip, "."); }
+        info(rx,y,"IP:      ", ip, acc, w); y += 16;
+    }
+    y += 12;
+    canvas_draw_string(cv, "(appuyez sur une touche pour revenir)", rx, y, dim, 1);
+    win_damage();
+    for (;;) { event_t e; int r = win_wait(&e); if (r < 0) sys_exit(0); if (e.type == EV_KEY && e.pressed) break; }
 }
 
 static void run(char *line) {
@@ -149,6 +199,7 @@ static void run(char *line) {
     else if (!strcmp(cmd, "whoami")) { userinfo_t u; sys_whoami(&u); tprint(u.name); if (u.is_admin) tprint(" (admin)"); tprint("\n"); }
     else if (!strcmp(cmd, "date")) cmd_date();
     else if (!strcmp(cmd, "sysinfo")) cmd_sysinfo();
+    else if (!strcmp(cmd, "Phallus") || !strcmp(cmd, "phallus")) cmd_phallus();
     else { tprint(cmd); tprint(": commande inconnue\n"); }
 }
 
@@ -158,7 +209,8 @@ int main(void) {
     memset(cells, ' ', sizeof cells);
     strcpy(cwd, "/home/user");
     dirent_t e; if (sys_vfs_stat(cwd, &e) != 0) strcpy(cwd, "/");
-    tprint("sexOs Terminal -- PROCESSUS ring 3 separe. Tapez 'help'.\n");
+    for (int i = 0; i < SEXOS_BANNER_LINES; i++) { tprint(sexos_banner[i]); tprint("\n"); }
+    tprint("Terminal ring 3. Tapez 'help', ou 'Phallus' pour le fastfetch.\n");
     prompt(); redraw();
 
     for (;;) {

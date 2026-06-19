@@ -16,6 +16,12 @@ Clavier en **AZERTY**. Souris/clavier émulés en **PS/2** (pas de pile USB) :
 en cas de souris inerte, c'est que l'hyperviseur a présenté un pointeur USB.
 
 ## Ce que contient cette image
+**Écran de démarrage** : une bannière ASCII **sexOs** s'affiche au boot.
+
+**Terminal — fastfetch** : dans le Terminal, tapez **`Phallus`** pour afficher
+un fastfetch (art à gauche + informations système : OS, noyau, uptime, mémoire,
+PCI, IP). La bannière ASCII s'affiche aussi à l'ouverture du Terminal.
+
 **Bureau multi-processus en ring 3** : le compositeur et chaque application sont
 des **processus ring 3 isolés** reliés par IPC (messagerie + mémoire partagée).
 **Aucune application n'est lancée au démarrage** : le bureau s'ouvre vide, avec

@@ -35,6 +35,7 @@
 #include "sched.h"
 #include "test_user_bin.h"
 #include "desktop.h"
+#include "ascii_art.h"
 
 // -----------------------------------------------------------------------------
 //  Requêtes Limine
@@ -106,22 +107,22 @@ static void draw_splash(void) {
     canvas_t *c = fb_canvas();
     uint32_t bg     = fb_rgb(0x12, 0x14, 0x22);
     uint32_t accent = fb_rgb(0x4e, 0xc9, 0xff);
-    uint32_t white  = fb_rgb(0xff, 0xff, 0xff);
     uint32_t pink   = fb_rgb(0xff, 0x7a, 0xb0);
 
     canvas_fill(c, bg);
     canvas_fill_rect(c, 0, 0, c->width, 6, accent);
 
+    // Banniere ASCII « sexOs » centree (echelle 2), suivie du sous-titre.
     int cx = c->width / 2;
-    int ty = c->height / 5;
-    canvas_draw_string(c, "sexOs", cx - canvas_text_width("sexOs", 6) / 2, ty, white, 6);
+    int ty = c->height / 4;
+    int sc = (c->width >= 700) ? 2 : 1;
+    for (int i = 0; i < SEXOS_BANNER_LINES; i++)
+        canvas_draw_string(c, sexos_banner[i],
+                           cx - canvas_text_width(sexos_banner[i], sc) / 2,
+                           ty + i * 16 * sc, pink, sc);
     const char *sub = "version 2.0  --  demarrage du systeme";
-    canvas_draw_string(c, sub, cx - canvas_text_width(sub, 2) / 2, ty + 6 * 16 + 16, accent, 2);
-
-    // Mascotte verticale (D | | | 8).
-    const char *m[] = { "D", "|", "|", "|", "8" };
-    for (int i = 0; i < 5; i++)
-        canvas_draw_string(c, m[i], cx - 4 * 4, ty + 6 * 16 + 70 + i * 16 * 4, pink, 4);
+    canvas_draw_string(c, sub, cx - canvas_text_width(sub, 2) / 2,
+                       ty + SEXOS_BANNER_LINES * 16 * sc + 24, accent, 2);
 }
 
 // -----------------------------------------------------------------------------
