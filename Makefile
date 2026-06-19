@@ -71,9 +71,24 @@ $(OBJDIR)/%.bin: user_tests/%.asm
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f bin $< -o $@
 
-# user_blobs.asm incbin les .bin : dépendance explicite (prioritaire sur le
+# ---- Runtime + programmes userspace en C (ring 3, ELF) ----------------------
+UCFLAGS  := -Wall -ffreestanding -fno-stack-protector -fno-pic -fno-pie -m64 \
+            -march=x86-64 -mno-sse -mno-mmx -mno-80387 -mno-red-zone -O2 \
+            -I$(KDIR) -Iuser/lib
+ULDFLAGS := -m elf_x86_64 -nostdlib -static --build-id=none -T user/user.ld
+
+$(OBJDIR)/u_crt0.o: user/lib/crt0.asm
+	@mkdir -p $(OBJDIR)
+	$(ASM) -f elf64 $< -o $@
+$(OBJDIR)/u_%.o: user/%.c
+	@mkdir -p $(OBJDIR)
+	$(CC) $(UCFLAGS) -c $< -o $@
+$(OBJDIR)/gfxdemo.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_gfxdemo.o user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_gfxdemo.o
+
+# user_blobs.asm incbin les binaires : dépendance explicite (prioritaire sur le
 # motif générique ci-dessus).
-$(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS)
+$(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) $(OBJDIR)/gfxdemo.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

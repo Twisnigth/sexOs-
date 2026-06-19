@@ -14,6 +14,9 @@
 #include "serial.h"
 #include "pit.h"
 #include "sched.h"
+#include "syscalls.h"
+#include "framebuffer.h"
+#include "input.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -159,6 +162,31 @@ long syscall_dispatch(sysargs_t *a) {
         exit_code = (int)a->rdi;
         user_exit();                                    // ne revient pas (legacy)
         return 0;
+    // --- Appels système natifs MonOS (>= 0x200) -----------------------------
+    case SYS_get_cpl: {
+        uint16_t cs; __asm__ volatile ("mov %%cs, %0" : "=r"(cs));
+        // NB : ici on est en ring 0 (dans le syscall) ; l'appelant était ring 3.
+        (void)cs; return 3;
+    }
+    case SYS_fb_map: {
+        fbinfo_t *fi = (fbinfo_t *)a->rdi;
+        uint64_t phys  = fb_phys();
+        uint32_t pitch = fb_pitch();
+        uint32_t h     = fb_height();
+        uint64_t bytes = (uint64_t)pitch * h;
+        uint64_t va    = 0xE0000000ULL;            // VA utilisateur du framebuffer
+        uint64_t cur   = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
+        for (uint64_t off = 0; off < bytes; off += 4096)
+            vmm_map_page_in(cur, va + off, phys + off, PTE_USER | PTE_WRITE | PTE_PWT);
+        if (fi) { fi->addr = va; fi->width = fb_width(); fi->height = h; fi->pitch = pitch; }
+        return 0;
+    }
+    case SYS_input_poll: {
+        event_t *e = (event_t *)a->rdi;
+        return input_poll(e) ? 1 : 0;
+    }
+    case SYS_time_ms:
+        return (long)pit_ms();
     default:
         kprintf("[sys] non gere : num=%u\n", a->rax);
         return -38;                                     // -ENOSYS

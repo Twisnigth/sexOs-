@@ -11,6 +11,8 @@ global utest_b_start
 global utest_b_end
 global utest_crash_start
 global utest_crash_end
+global ugfx_start
+global ugfx_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -18,5 +20,7 @@ utest_b_start:      incbin "build/obj/taskB.bin"
 utest_b_end:
 utest_crash_start:  incbin "build/obj/crash.bin"
 utest_crash_end:
+ugfx_start:         incbin "build/obj/gfxdemo.elf"
+ugfx_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits

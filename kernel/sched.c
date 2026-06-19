@@ -7,6 +7,7 @@
 #include "heap.h"
 #include "gdt.h"
 #include "boot.h"
+#include "elf.h"
 #include "klib.h"
 #include "serial.h"
 
@@ -48,10 +49,47 @@ static task_t *alloc_slot(void) {
     return NULL;
 }
 
+// Finalise une tâche : pile utilisateur, pile noyau, contexte initial ring 3.
+static int finish_task(task_t *t, const char *name, uint64_t pml4,
+                       uint64_t entry, uint64_t brk) {
+    // Pile utilisateur.
+    for (uint64_t off = 0; off < USER_STACK_SZ; off += 4096) {
+        uint64_t phys = pmm_alloc_page();
+        if (!phys) return -1;
+        vmm_map_page_in(pml4, USER_STACK_TOP - USER_STACK_SZ + off, phys,
+                        PTE_USER | PTE_WRITE);
+    }
+    // Pile noyau (sert de rsp0 et porte le contexte sauvegardé).
+    uint8_t *kstack = (uint8_t *)kmalloc(KSTACK_SIZE);
+    if (!kstack) return -1;
+    uint64_t ktop = ((uint64_t)kstack + KSTACK_SIZE) & ~0xFULL;
+
+    // Contexte initial : un registers_t qui, restauré + iretq, entre en ring 3.
+    registers_t *f = (registers_t *)(ktop - sizeof(registers_t));
+    memset(f, 0, sizeof(*f));
+    f->rip    = entry;
+    f->cs     = USER_CS;
+    f->rflags = USER_RFLAGS;
+    f->rsp    = USER_STACK_TOP - 16;
+    f->ss     = USER_SS;
+
+    t->pid        = next_pid++;
+    t->state      = TASK_READY;
+    t->pml4       = pml4;
+    t->kstack     = (uint64_t)kstack;
+    t->kstack_top = ktop;
+    t->ctx        = (uint64_t)f;
+    t->fs_base    = 0;
+    t->brk        = brk;
+    t->mmap_base  = 0x100000000000ULL;
+    t->exit_code  = 0;
+    t->name       = name;
+    return t->pid;
+}
+
 int sched_new_flat_task(const char *name, const uint8_t *code, size_t len) {
     task_t *t = alloc_slot();
     if (!t) return -1;
-
     uint64_t pml4 = vmm_new_address_space();
     if (!pml4) return -1;
 
@@ -65,41 +103,18 @@ int sched_new_flat_task(const char *name, const uint8_t *code, size_t len) {
         memcpy(dst, code + off, n);
         vmm_map_page_in(pml4, USER_LOAD_ADDR + off, phys, PTE_USER | PTE_WRITE);
     }
+    return finish_task(t, name, pml4, USER_LOAD_ADDR, 0);
+}
 
-    // Pile utilisateur.
-    for (uint64_t off = 0; off < USER_STACK_SZ; off += 4096) {
-        uint64_t phys = pmm_alloc_page();
-        if (!phys) return -1;
-        vmm_map_page_in(pml4, USER_STACK_TOP - USER_STACK_SZ + off, phys,
-                        PTE_USER | PTE_WRITE);
-    }
-
-    // Pile noyau (sert de rsp0 et porte le contexte sauvegardé).
-    uint8_t *kstack = (uint8_t *)kmalloc(KSTACK_SIZE);
-    if (!kstack) return -1;
-    uint64_t ktop = ((uint64_t)kstack + KSTACK_SIZE) & ~0xFULL;
-
-    // Contexte initial : un registers_t qui, restauré + iretq, entre en ring 3.
-    registers_t *f = (registers_t *)(ktop - sizeof(registers_t));
-    memset(f, 0, sizeof(*f));
-    f->rip    = USER_LOAD_ADDR;
-    f->cs     = USER_CS;
-    f->rflags = USER_RFLAGS;
-    f->rsp    = USER_STACK_TOP - 16;
-    f->ss     = USER_SS;
-
-    t->pid        = next_pid++;
-    t->state      = TASK_READY;
-    t->pml4       = pml4;
-    t->kstack     = (uint64_t)kstack;
-    t->kstack_top = ktop;
-    t->ctx        = (uint64_t)f;
-    t->fs_base    = 0;
-    t->brk        = 0;
-    t->mmap_base  = 0x100000000000ULL;
-    t->exit_code  = 0;
-    t->name       = name;
-    return t->pid;
+int sched_new_elf_task(const char *name, const uint8_t *elf, size_t len) {
+    task_t *t = alloc_slot();
+    if (!t) return -1;
+    uint64_t pml4 = vmm_new_address_space();
+    if (!pml4) return -1;
+    uint64_t brk_end = 0;
+    uint64_t entry = elf_load(pml4, elf, len, &brk_end);
+    if (!entry) return -1;
+    return finish_task(t, name, pml4, entry, brk_end);
 }
 
 // --- Sélection round-robin ---------------------------------------------------

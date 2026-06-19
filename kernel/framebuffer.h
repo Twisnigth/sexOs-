@@ -18,5 +18,7 @@ uint32_t fb_rgb(uint8_t r, uint8_t g, uint8_t b);
 
 uint32_t fb_width(void);
 uint32_t fb_height(void);
+uint32_t fb_pitch(void);
+uint64_t fb_phys(void);          // adresse physique (pour mapper en ring 3)
 
 #endif
