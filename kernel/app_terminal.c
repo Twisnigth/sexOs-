@@ -18,6 +18,7 @@
 #include "ssh.h"
 #include "proc.h"
 #include "boot.h"
+#include "pkg.h"
 #include "io.h"
 
 #define TCOLS 80
@@ -40,7 +41,7 @@ typedef struct {
 // Liste des commandes intégrées (triée, sert aussi à la complétion).
 static const char *BUILTINS[] = {
     "about","bb","busybox","cat","cd","clear","date","echo","help","ifconfig","ls",
-    "mkdir","nslookup","ping","pwd","reboot","rm","ssh","sysinfo","touch","wget","whoami"
+    "mkdir","nslookup","pacman","ping","pwd","reboot","rm","ssh","sysinfo","touch","wget","whoami"
 };
 #define NBUILTINS (int)(sizeof(BUILTINS)/sizeof(BUILTINS[0]))
 
@@ -466,6 +467,24 @@ static void cmd_bb(term_t *t, char *arg) {
     bb_term = 0;
 }
 
+// --- pacman : gestionnaire de paquets natif ---------------------------------
+static term_t *pac_term;
+static void pacman_out(const char *s) { if (pac_term) term_print(pac_term, s); }
+
+static void cmd_pacman(term_t *t, char *arg) {
+    char *op = arg, *name = (char *)"";
+    char *sp = strchr(arg, ' ');
+    if (sp) { *sp = 0; name = sp + 1; while (*name == ' ') name++; }
+    pac_term = t; pkg_set_output(pacman_out);
+    if (strcmp(op, "-Sy") == 0) pkg_sync();
+    else if (strcmp(op, "-Syu") == 0) pkg_upgrade();
+    else if (strcmp(op, "-S") == 0) pkg_install(name);
+    else if (strcmp(op, "-R") == 0) pkg_remove(name);
+    else if (strcmp(op, "-Q") == 0) pkg_query();
+    else term_print(t, "usage: pacman -Sy | -S <pkg> | -R <pkg> | -Q | -Syu\n");
+    pkg_set_output(0); pac_term = 0;
+}
+
 static void term_run(term_t *t, char *line) {
     while (*line == ' ') line++;
     char *arg = line;
@@ -493,6 +512,7 @@ static void term_run(term_t *t, char *line) {
     else if (strcmp(cmd, "wget") == 0) cmd_wget(t, arg);
     else if (strcmp(cmd, "ssh") == 0) cmd_ssh(t, arg);
     else if (strcmp(cmd, "bb") == 0 || strcmp(cmd, "busybox") == 0) cmd_bb(t, arg);
+    else if (strcmp(cmd, "pacman") == 0) cmd_pacman(t, arg);
     else if (strcmp(cmd, "about") == 0) cmd_about(t);
     else if (strcmp(cmd, "reboot") == 0) { term_print(t, "redemarrage...\n"); outb(0x64, 0xFE); }
     else { term_print(t, cmd); term_print(t, ": commande inconnue\n"); }

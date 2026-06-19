@@ -18,6 +18,10 @@ chargeur **[Limine](https://github.com/limine-bootloader/limine)**.
 |-----------|-------------|-----------|
 | ![login](docs/login.png) | ![explorateur](docs/explorer.png) | ![privileges](docs/privileges.png) |
 
+| Terminal | Gestionnaire de paquets (`pacman`) |
+|----------|------------------------------------|
+| ![terminal](docs/terminal.png) | ![pacman](docs/pacman.png) |
+
 ## Démarrage rapide
 
 ```bash
@@ -84,11 +88,35 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
   (user/root), canal **exec** et **shell interactif** (pty).
 - Testé dans les deux sens contre un `sshd`/`ssh` OpenSSH réel via QEMU SLIRP.
 
+**Compatibilité Linux** (Phase 4)
+- ✅ **Ring 3** : segments utilisateur (GDT), `syscall`/`sysret` (MSR EFER/STAR/
+  LSTAR/FMASK), `iretq`, **espace d'adressage par processus** (PML4 dédié
+  partageant le haut du noyau), TSS `rsp0`, **SSE** activé.
+- ✅ **Chargeur ELF64** statique (`PT_LOAD`, mappage page par page, pile + auxv
+  avec `AT_RANDOM`).
+- ✅ **ABI d'appels système Linux x86-64** : `write`, `writev`, `read`, `brk`,
+  `mmap`/`munmap`, `arch_prctl`, `uname`, `clock_gettime`, `getpid`, `exit`, …
+- ✅ Exécute un **vrai binaire `busybox`** compilé statiquement avec **musl libc**
+  (commande `bb <applet>` dans le terminal). Un binaire musl de test tourne aussi
+  au démarrage.
+- Testé en QEMU : `bb echo`, `bb uname`, `bb ls`, etc. s'exécutent en **ring 3**.
+
+**Gestionnaire de paquets** (Phase 5) — style `pacman`
+- ✅ Commande `pacman` : `-Sy` (synchroniser la base du dépôt), `-S <pkg>`
+  (installer), `-R <pkg>` (désinstaller), `-Q` (lister), `-Syu` (mettre à jour).
+- ✅ **Dépôt HTTP** (`repo.db` + paquets `MONPAC1`), **résolution de dépendances**
+  récursive, **vérification d'intégrité SHA-256**, base locale des paquets
+  installés sous `/var/lib/pacman/local`.
+- Testé en QEMU contre un dépôt HTTP : `pacman -S cowsay` tire sa dépendance
+  `hello`, vérifie chaque SHA-256, installe les deux ; `-Q` les liste ;
+  `-R cowsay` le retire (voir `docs/pacman.png`).
+
 **Applications**
 - ✅ **Terminal** : shell avec `help`, `clear`, `echo`, `ls`, `cd`, `pwd`, `cat`,
   `mkdir`, `touch`, `rm`, `whoami`, `date`, `sysinfo`, `ifconfig`, `ping`,
-  `nslookup`, `wget`, `about`, `reboot`. **Auto-complétion Tab** (commandes +
-  chemins) et **édition de ligne** complète (curseur, insertion/suppression).
+  `nslookup`, `wget`, `ssh`, `bb` (busybox), `pacman`, `about`, `reboot`.
+  **Auto-complétion Tab** (commandes + chemins) et **édition de ligne** complète
+  (curseur, insertion/suppression).
 - ✅ **Explorateur de fichiers** : naviguer, ouvrir, **créer un dossier**,
   **renommer**, **supprimer**, **copier/couper/coller**.
 - ✅ **Paramètres** : infos système, modes d'affichage (GOP), date/heure,
@@ -136,9 +164,15 @@ les éléments suivants **ne sont pas faits**. Ils sont signalés sans détour :
 - ⚠️ **SSH** : un seul algorithme par catégorie (curve25519-sha256 /
   ssh-ed25519 / chacha20-poly1305) ; auth par mot de passe (pas encore par clé).
 - ❌ **Multi-cœurs (SMP)** : non implémenté (mono-cœur).
-- ❌ **Ring 3 / appels système / isolation par processus** : les applications
-  s'exécutent en **ring 0**. La séparation des privilèges est donc **logique**
-  (vérifiée par le noyau), **pas** imposée par le matériel via ring 3.
+- ✅ **Ring 3 / appels système** : les **binaires Linux (busybox/musl)** tournent
+  en **ring 3** avec un espace d'adressage isolé (voir Phase 4). En revanche les
+  **applications natives du bureau** (terminal, explorateur…) restent en ring 0 ;
+  leur séparation des privilèges est **logique** (vérifiée par le noyau).
+- ⚠️ **Compatibilité Linux** : ABI partielle (sous-ensemble d'appels système),
+  binaires **statiques** uniquement (pas de chargeur dynamique), pas de threads
+  ni de `fork`/`execve` complets.
+- ⚠️ **Gestionnaire de paquets** : format de paquet maison (`MONPAC1`, non
+  compressé), pas de signatures GPG (intégrité par SHA-256 seulement).
 - ⚠️ **Sécurité des mots de passe** : hachés par un simple djb2, **sans valeur
   cryptographique** — démonstration pédagogique uniquement.
 
@@ -225,7 +259,13 @@ kernel/
   vfs.*              système de fichiers en mémoire
   users.*            comptes, authentification, privilèges (Phase 9)
   app_*.c            terminal, explorateur, paramètres, éditeur, à propos
+  net.* e1000.* ipv4.* udp.* tcp.* dhcp.* dns.*   pile réseau (Phase 2)
+  crypto.* sha256.* csprng.* ssh.*   crypto + SSH client/serveur (Phase 3)
+  proc.* elf.* usermode.asm vmm.*    ring 3, ELF64, appels système (Phase 4)
+  pkg.*              gestionnaire de paquets style pacman (Phase 5)
+third_party/monocypher/   primitives cryptographiques (domaine public)
 third_party/limine/  chargeur Limine (boot UEFI + BIOS)
+user/                binaires utilisateur (busybox musl, binaire de test)
 legacy/              l'ancien OS 16/32 bits (conservé)
 build/flash_usb.sh   gravure USB avec garde-fous
 ```

@@ -31,6 +31,7 @@
 #include "crypto.h"
 #include "ssh.h"
 #include "proc.h"
+#include "pkg.h"
 #include "test_user_bin.h"
 #include "desktop.h"
 

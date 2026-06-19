@@ -83,6 +83,9 @@ bool net_ping(ip4_t dst, uint32_t *rtt_ms);       // un ping (echo)
 bool dns_resolve(const char *name, ip4_t *out);   // résolution DNS
 // GET HTTP simple : écrit le corps dans buf (taille max len), renvoie la taille.
 int  http_get(const char *host, const char *path, char *buf, int len);
+// GET HTTP (ip:port/chemin) : renvoie le CORPS (sans en-tête) dans buf.
+int  http_download(ip4_t ip, uint16_t port, const char *host, const char *path,
+                   char *buf, int max);
 
 // Formate une IP "a.b.c.d" dans buf (>= 16 octets).
 void ip_to_str(ip4_t ip, char *buf);

@@ -229,7 +229,41 @@ void tcp_close(int conn) {
     c->used = false;
 }
 
-// --- HTTP GET simple ---------------------------------------------------------
+// --- HTTP GET (hôte:port/chemin) : renvoie le CORPS, taille dans *body_len ---
+//  'ip_or_dns' : si parse_ip échoue, on résout par DNS.
+int http_download(ip4_t ip, uint16_t port, const char *host, const char *path,
+                  char *buf, int max) {
+    int conn = tcp_connect(ip, port);
+    if (conn < 0) return -1;
+
+    char req[640]; int o = 0;
+    const char *parts[] = { "GET ", path, " HTTP/1.0\r\nHost: ", host,
+                            "\r\nConnection: close\r\n\r\n" };
+    for (int i = 0; i < 5; i++) for (const char *p = parts[i]; *p; p++) req[o++] = *p;
+    tcp_send(conn, req, o);
+
+    static char raw[262144];
+    int total = 0;
+    while (total < (int)sizeof(raw) - 1) {
+        int n = tcp_recv(conn, raw + total, sizeof(raw) - 1 - total, 5000);
+        if (n <= 0) break;
+        total += n;
+    }
+    raw[total] = 0;
+    tcp_close(conn);
+
+    // Sépare l'en-tête du corps (\r\n\r\n).
+    int body = 0;
+    for (int i = 0; i + 3 < total; i++)
+        if (raw[i]=='\r' && raw[i+1]=='\n' && raw[i+2]=='\r' && raw[i+3]=='\n') { body = i + 4; break; }
+    int blen = total - body;
+    if (blen < 0) blen = 0;
+    if (blen > max) blen = max;
+    memcpy(buf, raw + body, blen);
+    return blen;
+}
+
+// --- HTTP GET simple (port 80, réponse complète) -----------------------------
 int http_get(const char *host, const char *path, char *buf, int len) {
     ip4_t ip;
     if (!dns_resolve(host, &ip)) return -1;
