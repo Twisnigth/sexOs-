@@ -87,6 +87,8 @@ registers_t *isr_dispatch(registers_t *r) {
                 r->err_code, (void *)r->rip, r->cs, r->rflags);
         kprintf("  rax=%p rbx=%p rcx=%p rdx=%p\n",
                 (void *)r->rax, (void *)r->rbx, (void *)r->rcx, (void *)r->rdx);
+        kprintf("  rsp=%p rbp=%p rsi=%p rdi=%p\n",
+                (void *)r->rsp, (void *)r->rbp, (void *)r->rsi, (void *)r->rdi);
         if (r->int_no == 14) {
             uint64_t cr2;
             __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));

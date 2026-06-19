@@ -12,6 +12,7 @@
 // --- Processus ---------------------------------------------------------------
 #define SYS_get_cpl     0x200      // renvoie le CPL courant (debug : 3 en ring 3)
 #define SYS_yield       0x204      // cède le CPU (commutation coopérative)
+#define SYS_pid_alive   0x205      // pid_alive(pid) -> 1 si la tâche vit, 0 sinon
 // (exit/getpid réutilisent les numéros Linux 60/39)
 
 // --- IPC : messagerie + mémoire partagée -------------------------------------
@@ -36,6 +37,22 @@
 
 // --- Système -----------------------------------------------------------------
 #define SYS_reboot      0x260      // redémarre la machine
+
+// --- Système de fichiers (par chemin ; agit sur le VFS du noyau) -------------
+#define SYS_vfs_list    0x230      // (path, index, *dirent) -> 1=entrée / 0=fin / -1=erreur
+#define SYS_vfs_read    0x231      // (vfs_io*) -> octets lus
+#define SYS_vfs_write   0x232      // (vfs_io*) -> octets écrits, -1 si interdit
+#define SYS_vfs_create  0x233      // (path, type) -> 0/-1
+#define SYS_vfs_delete  0x234      // (path) -> 0/-1
+#define SYS_vfs_stat    0x236      // (path, *dirent) -> 0=ok / -1=absent
+
+// --- Comptes / permissions ---------------------------------------------------
+#define SYS_whoami      0x240      // (*userinfo)
+#define SYS_can_write   0x241      // (path) -> 1/0
+
+typedef struct { char name[64]; uint32_t type; uint64_t size; } dirent_t;  // type: 0=fichier 1=dossier
+typedef struct { const char *path; uint64_t off; void *buf; uint64_t len; } vfs_io_t;
+typedef struct { char name[32]; char home[96]; int is_admin; } userinfo_t;
 
 // Informations du framebuffer renvoyées par SYS_fb_map.
 typedef struct {

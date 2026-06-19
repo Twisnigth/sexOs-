@@ -209,9 +209,12 @@ void kmain(void) {
     net_init();
     if (nic_present()) { net_dhcp(); ssh_server_init(); }
 
-    // --- VFS + comptes côté NOYAU (pour sshd/pacman) -------------------------
+    // --- VFS + comptes côté NOYAU (partagés par sshd, pacman ET le bureau) ---
     vfs_init();
     users_init();
+    // Session par défaut (la connexion en multi-processus n'est pas encore câblée).
+    for (int i = 0; i < users_count(); i++)
+        if (strcmp(users_get(i)->name, "user") == 0) { users_set_current(users_get(i)); break; }
 
     // --- Bureau MULTI-PROCESSUS en RING 3 (isolation par processus, IPC) -----
     //  Le compositeur et CHAQUE application sont des PROCESSUS ring 3 distincts,
@@ -221,12 +224,20 @@ void kmain(void) {
     {
         extern uint8_t ucomp_start[], ucomp_end[];
         extern uint8_t uclock_start[], uclock_end[];
-        extern uint8_t uhello_start[], uhello_end[];
+        extern uint8_t uterm_start[], uterm_end[];
+        extern uint8_t ufiles_start[], ufiles_end[];
         extern uint8_t ucrash_start[], ucrash_end[];
         kprintf("[boot] lancement du compositeur + applications (ring 3, IPC)\n");
+        //  Chaque programme est un PROCESSUS ring 3 distinct (espace d'adressage
+        //  propre) relié au compositeur par messagerie + mémoire partagée :
+        //   - compositeur : possède le framebuffer et route les entrées,
+        //   - terminal/explorateur : applications COMPLÈTES (VFS via syscalls),
+        //   - horloge : se rafraîchit seule (preuve de concurrence),
+        //   - crash : faute volontaire (preuve d'isolation : le noyau la tue).
         sched_new_elf_task("compositeur", ucomp_start, (size_t)(ucomp_end - ucomp_start));
+        sched_new_elf_task("terminal", uterm_start, (size_t)(uterm_end - uterm_start));
+        sched_new_elf_task("explorateur", ufiles_start, (size_t)(ufiles_end - ufiles_start));
         sched_new_elf_task("horloge", uclock_start, (size_t)(uclock_end - uclock_start));
-        sched_new_elf_task("bonjour", uhello_start, (size_t)(uhello_end - uhello_start));
         sched_new_elf_task("crash", ucrash_start, (size_t)(ucrash_end - ucrash_start));
     }
     sched_start();                          // ne revient jamais

@@ -218,6 +218,10 @@ void sched_run_until_idle(void) {
     rr_last = SCHED_MAX_TASKS - 1;
     task_t *first = pick_next();
     if (!first) return;                         // rien à exécuter
+    // Handoff atomique (cf. sched_start) : pas de préemption entre install() et
+    // l'iretq. L'iretq de sched_save_and_run restaure IF=1 dans la tâche, donc
+    // la préemption (entrelacement A/B) reprend bien une fois en ring 3.
+    __asm__ volatile ("cli");
     active = 1;
     install(first);
     sched_save_and_run((registers_t *)first->ctx);  // revient via back_to_kernel
@@ -246,6 +250,12 @@ static void create_idle(void) {
 
 // Démarre l'ordonnanceur pour de bon (ne revient jamais).
 void sched_start(void) {
+    // Section critique : entre install() et l'iretq de reprise, le contexte de
+    // la 1re tâche ne doit PAS être écrasé par une préemption du minuteur (qui
+    // appellerait sched_on_timer et sauvegarderait un cadre noyau dans ctx).
+    // L'iretq de sched_resume restaure le RFLAGS de la tâche (IF=1) : les
+    // interruptions reprennent une fois en ring 3.
+    __asm__ volatile ("cli");
     kernel_cr3 = vmm_current_cr3();
     if (!idle_task) create_idle();
     rr_last = SCHED_MAX_TASKS - 1;

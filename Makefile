@@ -125,13 +125,19 @@ $(OBJDIR)/app_hello.elf: $(OBJDIR)/u_app_hello.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_app_hello.o $(APPLIBS)
 $(OBJDIR)/app_crash.elf: $(OBJDIR)/u_app_crash.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_app_crash.o $(APPLIBS)
+# Applications complètes (terminal, explorateur) : chacune un PROCESSUS séparé.
+$(OBJDIR)/term.elf: $(OBJDIR)/u_term.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_term.o $(APPLIBS)
+$(OBJDIR)/files.elf: $(OBJDIR)/u_files.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_files.o $(APPLIBS)
 
 # user_blobs.asm incbin les binaires : dépendance explicite (prioritaire sur le
 # motif générique ci-dessus).
 $(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
                             $(OBJDIR)/gfxdemo.elf $(OBJDIR)/wmserver.elf $(OBJDIR)/desktop.elf \
                             $(OBJDIR)/compositor.elf $(OBJDIR)/app_clock.elf \
-                            $(OBJDIR)/app_hello.elf $(OBJDIR)/app_crash.elf
+                            $(OBJDIR)/app_hello.elf $(OBJDIR)/app_crash.elf \
+                            $(OBJDIR)/term.elf $(OBJDIR)/files.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

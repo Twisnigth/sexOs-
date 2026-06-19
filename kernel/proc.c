@@ -20,6 +20,8 @@
 #include "rtc.h"
 #include "pci.h"
 #include "io.h"
+#include "vfs.h"
+#include "users.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -318,6 +320,77 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_comp_pid:
         return compositor_pid;
+    case SYS_pid_alive: {
+        task_t *t = sched_task_by_pid((int)a->rdi);
+        return (t && t->state != TASK_UNUSED && t->state != TASK_ZOMBIE) ? 1 : 0;
+    }
+    // --- Système de fichiers (VFS du noyau) par chemin -----------------------
+    case SYS_vfs_list: {
+        vfs_node_t *d = vfs_resolve((const char *)a->rdi);
+        if (!d || d->type != VFS_DIR) return -1;
+        vfs_node_t *c = d->children;
+        for (int i = 0; c && i < (int)a->rsi; i++) c = c->next;
+        if (!c) return 0;
+        dirent_t *e = (dirent_t *)a->rdx;
+        if (e) { strncpy(e->name, c->name, 63); e->name[63] = 0;
+                 e->type = (c->type == VFS_DIR) ? 1 : 0; e->size = c->size; }
+        return 1;
+    }
+    case SYS_vfs_read: {
+        vfs_io_t *io = (vfs_io_t *)a->rdi;
+        vfs_node_t *f = vfs_resolve(io->path);
+        if (!f || f->type != VFS_FILE) return -1;
+        return vfs_read(f, io->off, io->buf, io->len);
+    }
+    case SYS_vfs_write: {
+        vfs_io_t *io = (vfs_io_t *)a->rdi;
+        if (!users_can_write_path(io->path)) return -1;
+        vfs_node_t *f = vfs_resolve(io->path);
+        if (!f) return -1;
+        return vfs_write(f, io->off, io->buf, io->len);
+    }
+    case SYS_vfs_create: {
+        const char *path = (const char *)a->rdi;
+        if (!users_can_write_path(path)) return -1;
+        char buf[256]; int slash = -1, i = 0;
+        for (; path[i] && i < 255; i++) { buf[i] = path[i]; if (path[i] == '/') slash = i; }
+        buf[i] = 0;
+        if (slash < 0) return -1;
+        const char *name = buf + slash + 1;
+        char parent[256];
+        if (slash == 0) { parent[0] = '/'; parent[1] = 0; }
+        else { memcpy(parent, buf, slash); parent[slash] = 0; }
+        vfs_node_t *p = vfs_resolve(parent);
+        if (!p || p->type != VFS_DIR) return -1;
+        return vfs_create(p, name, (a->rsi ? VFS_DIR : VFS_FILE)) ? 0 : -1;
+    }
+    case SYS_vfs_delete: {
+        const char *path = (const char *)a->rdi;
+        if (!users_can_write_path(path)) return -1;
+        vfs_node_t *n = vfs_resolve(path);
+        if (!n) return -1;
+        return vfs_delete(n) ? 0 : -1;
+    }
+    case SYS_vfs_stat: {
+        vfs_node_t *n = vfs_resolve((const char *)a->rdi);
+        if (!n) return -1;
+        dirent_t *e = (dirent_t *)a->rsi;
+        if (e) { strncpy(e->name, n->name, 63); e->name[63] = 0;
+                 e->type = (n->type == VFS_DIR) ? 1 : 0; e->size = n->size; }
+        return 0;
+    }
+    case SYS_whoami: {
+        userinfo_t *u = (userinfo_t *)a->rdi;
+        const user_t *cu = users_current();
+        if (u) {
+            if (cu) { strncpy(u->name, cu->name, 31); u->name[31] = 0;
+                      strncpy(u->home, cu->home, 95); u->home[95] = 0; u->is_admin = cu->is_admin ? 1 : 0; }
+            else { u->name[0] = 0; strcpy(u->home, "/"); u->is_admin = 0; }
+        }
+        return 0;
+    }
+    case SYS_can_write:
+        return users_can_write_path((const char *)a->rdi) ? 1 : 0;
     default:
         kprintf("[sys] non gere : num=%u\n", a->rax);
         return -38;                                     // -ENOSYS

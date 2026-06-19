@@ -25,6 +25,10 @@ global uhello_start
 global uhello_end
 global ucrash_start
 global ucrash_end
+global uterm_start
+global uterm_end
+global ufiles_start
+global ufiles_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -46,5 +50,9 @@ uhello_start:       incbin "build/obj/app_hello.elf"
 uhello_end:
 ucrash_start:       incbin "build/obj/app_crash.elf"
 ucrash_end:
+uterm_start:        incbin "build/obj/term.elf"
+uterm_end:
+ufiles_start:       incbin "build/obj/files.elf"
+ufiles_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits

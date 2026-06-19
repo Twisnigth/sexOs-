@@ -85,7 +85,7 @@ int main(void) {
     if (!back.pixels) return 2;
 
     int cx = fb.width / 2, cy = fb.height / 2, prevb = 0;
-    int drag = -1, ddx = 0, ddy = 0;
+    int drag = -1, ddx = 0, ddy = 0, reap = 0;
 
     for (;;) {
         // (1) Messages des applications.
@@ -133,6 +133,18 @@ int main(void) {
             } else if (e.type == EV_KEY) {
                 if (top_index >= 0 && wins[top_index].used) send_event(&wins[top_index], &e);
             }
+        }
+
+        // (2b) Récupération des fenêtres orphelines : si le PROCESSUS
+        //  propriétaire est mort (crash tué par le noyau, ou sortie sans fermer
+        //  sa fenêtre), on libère le slot pour que la fenêtre disparaisse.
+        if (++reap == 30) {
+            reap = 0;
+            for (int i = 0; i < MAXW; i++)
+                if (wins[i].used && !sys_pid_alive(wins[i].owner)) {
+                    wins[i].used = 0;
+                    if (top_index == i) top_index = -1;
+                }
         }
 
         // (3) Composition.
