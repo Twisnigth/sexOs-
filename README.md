@@ -101,6 +101,20 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
   au démarrage.
 - Testé en QEMU : `bb echo`, `bb uname`, `bb ls`, etc. s'exécutent en **ring 3**.
 
+**Refactor du modèle de privilèges** (ordonnanceur + GUI en ring 3)
+- ✅ **Ordonnanceur multi-processus préemptif** : plusieurs tâches ring 3
+  concurrentes, commutation de contexte (PIT), pile noyau (`rsp0`) **par tâche**.
+- ✅ **kill-on-fault** : une tâche ring 3 qui exécute une instruction privilégiée
+  (`cli`) ou déréférence un pointeur invalide est **tuée par le noyau** ; le
+  système **survit** (remplace le `panic` global). Vraie séparation matérielle.
+- ✅ **Compositeur / WM en ring 3 (CPL 3)** : possède le framebuffer (`sys_fb_map`)
+  et les entrées (`sys_input_poll`), fenêtres déplaçables/fermables — réutilise
+  le vrai `gfx.c`. Voir `docs/ring3-desktop.png` et `docs/ring3-gfx.png`.
+- ⚠️ **Partiel** : le portage des 5 applications historiques (terminal,
+  explorateur…) en ring 3 n'est pas fait (nécessite une API VFS par handles +
+  IPC). Le bureau historique tourne encore en ring 0. Détails et frontière
+  ring 0/ring 3 dans [`docs/ARCHITECTURE-rings.md`](docs/ARCHITECTURE-rings.md).
+
 **Gestionnaire de paquets** (Phase 5) — style `pacman`
 - ✅ Commande `pacman` : `-Sy` (synchroniser la base du dépôt), `-S <pkg>`
   (installer), `-R <pkg>` (désinstaller), `-Q` (lister), `-Syu` (mettre à jour),
@@ -168,10 +182,12 @@ les éléments suivants **ne sont pas faits**. Ils sont signalés sans détour :
 - ⚠️ **SSH** : un seul algorithme par catégorie (curve25519-sha256 /
   ssh-ed25519 / chacha20-poly1305) ; auth par mot de passe (pas encore par clé).
 - ❌ **Multi-cœurs (SMP)** : non implémenté (mono-cœur).
-- ✅ **Ring 3 / appels système** : les **binaires Linux (busybox/musl)** tournent
-  en **ring 3** avec un espace d'adressage isolé (voir Phase 4). En revanche les
-  **applications natives du bureau** (terminal, explorateur…) restent en ring 0 ;
-  leur séparation des privilèges est **logique** (vérifiée par le noyau).
+- ✅ **Ring 3 / ordonnanceur / kill-on-fault** : plusieurs processus ring 3
+  concurrents, préemption, et un compositeur/WM tournant à CPL 3 (voir le refactor
+  du modèle de privilèges plus haut). ⚠️ Le portage des **5 applications**
+  historiques (terminal, explorateur…) en ring 3 n'est **pas encore fait** : elles
+  tournent toujours en ring 0 (séparation pour l'instant **logique**). Frontière
+  détaillée dans [`docs/ARCHITECTURE-rings.md`](docs/ARCHITECTURE-rings.md).
 - ⚠️ **Compatibilité Linux** : ABI partielle (sous-ensemble d'appels système),
   binaires **statiques** uniquement (pas de chargeur dynamique), pas de threads
   ni de `fork`/`execve` complets.
