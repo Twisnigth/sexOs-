@@ -103,7 +103,8 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
 
 **Gestionnaire de paquets** (Phase 5) — style `pacman`
 - ✅ Commande `pacman` : `-Sy` (synchroniser la base du dépôt), `-S <pkg>`
-  (installer), `-R <pkg>` (désinstaller), `-Q` (lister), `-Syu` (mettre à jour).
+  (installer), `-R <pkg>` (désinstaller), `-Q` (lister), `-Syu` (mettre à jour),
+  `-Sr <ip[:port]>` (configurer l'adresse du dépôt HTTP — défaut `10.0.2.2:8000`).
 - ✅ **Dépôt HTTP** (`repo.db` + paquets `MONPAC1`), **résolution de dépendances**
   récursive, **vérification d'intégrité SHA-256**, base locale des paquets
   installés sous `/var/lib/pacman/local`.

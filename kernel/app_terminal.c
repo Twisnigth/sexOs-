@@ -476,12 +476,27 @@ static void cmd_pacman(term_t *t, char *arg) {
     char *sp = strchr(arg, ' ');
     if (sp) { *sp = 0; name = sp + 1; while (*name == ' ') name++; }
     pac_term = t; pkg_set_output(pacman_out);
-    if (strcmp(op, "-Sy") == 0) pkg_sync();
+    if (strcmp(op, "-Sr") == 0) {
+        // Configure l'adresse du depot : pacman -Sr <ip>[:port] (ou <ip> <port>)
+        char ipstr[24]; int k = 0; uint16_t port = 8000;
+        for (int c = 0; name[c] && name[c] != ':' && name[c] != ' ' && k < 23; c++)
+            ipstr[k++] = name[c];
+        ipstr[k] = 0;
+        const char *ps = name + k;
+        if (*ps == ':' || *ps == ' ') { port = 0; for (ps++; *ps >= '0' && *ps <= '9'; ps++) port = port*10 + (*ps - '0'); if (!port) port = 8000; }
+        ip4_t ip;
+        if (parse_ip(ipstr, &ip)) {
+            pkg_set_repo(ip, port);
+            term_print(t, "depot configure : "); term_print(t, ipstr);
+            term_print(t, "\nlancez maintenant : pacman -Sy\n");
+        } else term_print(t, "ip invalide. ex: pacman -Sr 192.168.1.50:8000\n");
+    }
+    else if (strcmp(op, "-Sy") == 0) pkg_sync();
     else if (strcmp(op, "-Syu") == 0) pkg_upgrade();
     else if (strcmp(op, "-S") == 0) pkg_install(name);
     else if (strcmp(op, "-R") == 0) pkg_remove(name);
     else if (strcmp(op, "-Q") == 0) pkg_query();
-    else term_print(t, "usage: pacman -Sy | -S <pkg> | -R <pkg> | -Q | -Syu\n");
+    else term_print(t, "usage: pacman -Sr <ip[:port]> | -Sy | -S <pkg> | -R <pkg> | -Q | -Syu\n");
     pkg_set_output(0); pac_term = 0;
 }
 

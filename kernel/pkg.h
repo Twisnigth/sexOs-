@@ -4,10 +4,15 @@
 #ifndef MONOS_PKG_H
 #define MONOS_PKG_H
 
+#include <stdint.h>
+
 // Sortie texte (vers le terminal). Renvoie 0 si succès.
 typedef void (*pkg_out_t)(const char *s);
 
 void pkg_set_output(pkg_out_t fn);
+
+// Configure l'adresse du dépôt HTTP (par défaut 10.0.2.2:8000, hôte QEMU).
+void pkg_set_repo(uint32_t ip, uint16_t port);
 
 int pkg_sync(void);                       // pacman -Sy  (télécharge la base du dépôt)
 int pkg_install(const char *name);        // pacman -S <pkg>

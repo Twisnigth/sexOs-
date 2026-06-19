@@ -24,10 +24,16 @@
 #include "klib.h"
 #include "heap.h"
 
-// Dépôt : accessible via la passerelle SLIRP de QEMU (hôte).
-#define REPO_IP   IP4(10,0,2,2)
-#define REPO_PORT 8000
-#define REPO_HOST "10.0.2.2"
+// Dépôt : configurable. Par défaut, la passerelle SLIRP de QEMU (hôte:8000).
+// Sous VMware/VirtualBox/vrai réseau, pointez-le ailleurs avec `pacman -Sr <ip>`.
+static ip4_t   repo_ip   = IP4(10, 0, 2, 2);
+static uint16_t repo_port = 8000;
+static char    repo_host[16] = "10.0.2.2";
+
+void pkg_set_repo(ip4_t ip, uint16_t port) {
+    repo_ip = ip; repo_port = port;
+    ip_to_str(ip, repo_host);
+}
 
 static pkg_out_t out;
 void pkg_set_output(pkg_out_t fn) { out = fn; }
@@ -80,7 +86,7 @@ static void sha_hex(const uint8_t *data, int len, char *hex) {
 // --- Téléchargement ----------------------------------------------------------
 static int download(const char *path, char *buf, int max) {
     if (!netif.up) return -1;
-    return http_download(REPO_IP, REPO_PORT, REPO_HOST, path, buf, max);
+    return http_download(repo_ip, repo_port, repo_host, path, buf, max);
 }
 
 // --- Base du dépôt (repo.db) -------------------------------------------------
@@ -222,7 +228,8 @@ int pkg_sync(void) {
     static char buf[65536];
     say("synchronisation de la base du depot...\n");
     int n = download("/repo.db", buf, sizeof(buf));
-    if (n <= 0) { say("echec : depot injoignable ("); say(REPO_HOST); say(")\n"); return -1; }
+    if (n <= 0) { say("echec : depot injoignable ("); say(repo_host);
+                  say(")\n  -> configurez le depot : pacman -Sr <ip-du-serveur>\n"); return -1; }
     if (!write_file("/var/lib/pacman/repo.db", (uint8_t *)buf, n)) {
         say("echec : ecriture de la base impossible\n"); return -1;
     }
