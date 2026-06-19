@@ -156,6 +156,49 @@ static void draw_window(win_t *win, int focused) {
     canvas_draw_rect(&back, win->x, win->y, win->w, win->h + TB, rgb(0x55, 0x5a, 0x6a));
 }
 
+// --- Composition optimisée (rectangles modifiés + curseur « save-under ») ----
+//  Le framebuffer est lent en écriture (write-through). Plutôt que de recopier
+//  tout l'écran à chaque trame, on ne pousse vers le framebuffer que les zones
+//  réellement modifiées : déplacement du curseur (8x8), fenêtre déplacée/fermée,
+//  fenêtre redessinée (WMSG_DAMAGE), horloge du dock. Le curseur est tracé
+//  directement sur l'écran ; 'back' contient le bureau SANS curseur.
+static int d_x0, d_y0, d_x1, d_y1, d_any, d_full;
+static void dirty_reset(void) { d_any = 0; d_full = 0; d_x0 = d_y0 = 1<<29; d_x1 = d_y1 = -(1<<29); }
+static void dirty_add(int x, int y, int w, int h) {
+    if (x < d_x0) d_x0 = x; if (y < d_y0) d_y0 = y;
+    if (x + w > d_x1) d_x1 = x + w; if (y + h > d_y1) d_y1 = y + h; d_any = 1;
+}
+static void dirty_full(void) { d_full = 1; d_any = 1; }
+
+// Copie une région de 'back' vers l'écran (bornée à l'écran).
+static void blit_region(int x, int y, int w, int h) {
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > (int)screen.width)  w = (int)screen.width  - x;
+    if (y + h > (int)screen.height) h = (int)screen.height - y;
+    if (w <= 0 || h <= 0) return;
+    for (int yy = y; yy < y + h; yy++) {
+        const uint32_t *s = (const uint32_t *)((const uint8_t *)back.pixels + yy * back.pitch) + x;
+        uint32_t *dd = (uint32_t *)((uint8_t *)screen.pixels + yy * screen.pitch) + x;
+        for (int i = 0; i < w; i++) dd[i] = s[i];
+    }
+}
+static void draw_cursor_screen(int x, int y) {
+    for (int yy = 0; yy < 8 && y + yy < (int)screen.height; yy++) {
+        uint32_t *dd = (uint32_t *)((uint8_t *)screen.pixels + (y + yy) * screen.pitch) + x;
+        for (int i = 0; i < 8 && x + i < (int)screen.width; i++) dd[i] = 0xFFFFFF;
+    }
+}
+// Recompose tout le bureau (sans curseur) dans 'back' (mémoire cache : rapide).
+static void compose_back(void) {
+    canvas_fill(&back, rgb(0x16, 0x18, 0x28));
+    canvas_draw_string(&back, "sexOs -- bureau ring 3 : cliquez sur \"Menu\" (en bas) pour lancer une application",
+                       12, 8, rgb(0x9a, 0xc8, 0xff), 1);
+    for (int i = 0; i < MAXW; i++) if (wins[i].used && i != top_index) draw_window(&wins[i], 0);
+    if (top_index >= 0 && wins[top_index].used) draw_window(&wins[top_index], 1);
+    draw_dock();
+}
+
 int main(void) {
     sys_comp_register();
     fbinfo_t fb; if (sys_fb_map(&fb)) return 1;
@@ -166,15 +209,25 @@ int main(void) {
     if (!back.pixels) return 2;
 
     int cx = fb.width / 2, cy = fb.height / 2, prevb = 0;
-    int drag = -1, ddx = 0, ddy = 0, reap = 0;
+    int drag = -1, ddx = 0, ddy = 0;
+    int pcx = cx, pcy = cy;                  // position précédente du curseur (écran)
+    int need_recompose = 1;                  // première trame : tout dessiner
+    uint64_t last_reap = 0, last_sec = (uint64_t)-1;
 
     for (;;) {
+        dirty_reset();
+
         // (1) Messages des applications.
         wmsg_t msg; int sender;
         while (sys_ipc_recv(&msg, sizeof msg, &sender) > 0) {
-            if (msg.type == WMSG_CREATE) handle_create(sender, &msg);
-            else if (msg.type == WMSG_DESTROY) { win_t *w = find(msg.win); if (w) w->used = 0; }
-            // WMSG_DAMAGE : on recompose chaque trame, rien à faire ici.
+            if (msg.type == WMSG_CREATE) { handle_create(sender, &msg); need_recompose = 1; dirty_full(); }
+            else if (msg.type == WMSG_DESTROY) {
+                win_t *w = find(msg.win);
+                if (w) { dirty_add(w->x, w->y, w->w, w->h + TB); w->used = 0; need_recompose = 1; }
+            } else if (msg.type == WMSG_DAMAGE) {           // le tampon de l'appli a changé
+                win_t *w = find(msg.win);
+                if (w) { need_recompose = 1; dirty_add(w->x, w->y, w->w, w->h + TB); }
+            }
         }
 
         // (2) Entrées : focus / déplacement / fermeture, sinon routage au focus.
@@ -186,14 +239,14 @@ int main(void) {
                 int released = !(buttons & MOUSE_LEFT) && (prevb & MOUSE_LEFT);
                 prevb = buttons;
                 if (pressed) {
-                    if (handle_dock_click(cx, cy)) { continue; }   // clic capté par le dock
+                    if (handle_dock_click(cx, cy)) { need_recompose = 1; dirty_full(); continue; }
                     for (int i = MAXW - 1; i >= 0; i--) {
                         // parcourt dans l'ordre de la pile (le focus en dernier)
                         int idx = (top_index >= 0) ? (top_index - i + 2 * MAXW) % MAXW : i;
                         win_t *w = &wins[idx];
                         if (!w->used) continue;
                         if (cx >= w->x && cx < w->x + w->w && cy >= w->y && cy < w->y + w->h + TB) {
-                            top_index = idx;
+                            top_index = idx; need_recompose = 1; dirty_full();
                             if (cy < w->y + TB) {       // barre de titre
                                 if (cx >= w->x + w->w - 18 && cx < w->x + w->w - 4) {
                                     wmsg_t c; memset(&c, 0, sizeof c); c.type = WMSG_CLOSE; c.win = w->id;
@@ -209,35 +262,49 @@ int main(void) {
                 } else if (released) {
                     prevb = buttons; drag = -1;
                 } else {
-                    if (drag >= 0) { wins[drag].x = cx - ddx; wins[drag].y = cy - ddy; }
-                    else if (top_index >= 0 && wins[top_index].used) send_event(&wins[top_index], &e);
+                    if (drag >= 0) {
+                        dirty_add(wins[drag].x, wins[drag].y, wins[drag].w, wins[drag].h + TB);  // ancienne position
+                        wins[drag].x = cx - ddx; wins[drag].y = cy - ddy;
+                        dirty_add(wins[drag].x, wins[drag].y, wins[drag].w, wins[drag].h + TB);  // nouvelle position
+                        need_recompose = 1;
+                    } else if (top_index >= 0 && wins[top_index].used) send_event(&wins[top_index], &e);
                 }
             } else if (e.type == EV_KEY) {
                 if (top_index >= 0 && wins[top_index].used) send_event(&wins[top_index], &e);
             }
         }
 
-        // (2b) Récupération des fenêtres orphelines : si le PROCESSUS
-        //  propriétaire est mort (crash tué par le noyau, ou sortie sans fermer
-        //  sa fenêtre), on libère le slot pour que la fenêtre disparaisse.
-        if (++reap == 30) {
-            reap = 0;
+        // (2b) Horloge du dock : rafraîchie chaque seconde (zone du dock seulement).
+        uint64_t now = sys_time_ms();
+        if (now / 1000 != last_sec) {
+            last_sec = now / 1000; need_recompose = 1;
+            dirty_add(0, (int)back.height - DOCK_H, (int)back.width, DOCK_H);
+        }
+
+        // (2c) Récupération des fenêtres orphelines (~toutes les 500 ms) : si le
+        //  PROCESSUS propriétaire est mort, on libère le slot (la fenêtre disparaît).
+        if (now - last_reap > 500) {
+            last_reap = now;
             for (int i = 0; i < MAXW; i++)
                 if (wins[i].used && !sys_pid_alive(wins[i].owner)) {
-                    wins[i].used = 0;
-                    if (top_index == i) top_index = -1;
+                    wins[i].used = 0; if (top_index == i) top_index = -1;
+                    need_recompose = 1; dirty_full();
                 }
         }
 
-        // (3) Composition.
-        canvas_fill(&back, rgb(0x16, 0x18, 0x28));
-        canvas_draw_string(&back, "sexOs -- bureau ring 3 : cliquez sur \"Menu\" (en bas) pour lancer une application",
-                           12, 8, rgb(0x9a, 0xc8, 0xff), 1);
-        for (int i = 0; i < MAXW; i++) if (wins[i].used && i != top_index) draw_window(&wins[i], 0);
-        if (top_index >= 0 && wins[top_index].used) draw_window(&wins[top_index], 1);
-        draw_dock();                                                 // barre des tâches + menu
-        canvas_fill_rect(&back, cx, cy, 8, 8, rgb(255, 255, 255));   // curseur
-        canvas_blit(&screen, &back, 0, 0);
-        sys_yield();                 // commutation coopérative (pas de busy-poll)
+        // (3) Mise à jour de l'écran : on ne pousse au framebuffer (lent) que les
+        //  zones réellement modifiées (recomposition partielle de 'back'), puis on
+        //  rafraîchit le curseur logiciel : restauration du fond sous l'ancienne
+        //  position (depuis 'back', sans curseur) + tracé à la nouvelle. Coût par
+        //  trame : la zone modifiée + 2 carrés de 8x8 — au lieu de tout l'écran.
+        if (need_recompose) {
+            compose_back();
+            if (d_full || !d_any) blit_region(0, 0, (int)screen.width, (int)screen.height);
+            else blit_region(d_x0, d_y0, d_x1 - d_x0, d_y1 - d_y0);
+        }
+        blit_region(pcx, pcy, 8, 8);     // restaure le fond sous l'ancien curseur
+        draw_cursor_screen(cx, cy);      // redessine le curseur à sa position
+        pcx = cx; pcy = cy;
+        sys_yield();                     // commutation coopérative (pas de busy-poll)
     }
 }
