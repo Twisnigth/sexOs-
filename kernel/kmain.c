@@ -32,6 +32,7 @@
 #include "ssh.h"
 #include "proc.h"
 #include "pkg.h"
+#include "sched.h"
 #include "test_user_bin.h"
 #include "desktop.h"
 
@@ -187,6 +188,22 @@ void kmain(void) {
     const char *av1[] = { "test" };
     int rc = proc_run(test_user_elf, test_user_elf_len, 1, av1);
     kprintf("[proc] binaire musl-libc de test termine, code = %d\n", rc);
+
+    // --- Démo ordonnanceur multi-processus ring 3 (refactor Phase 1) ---------
+    //  Prouve : plusieurs tâches ring 3 concurrentes (A/B entrelacés), faute
+    //  ring 3 -> tâche tuée sans planter le noyau, retour propre à l'idle.
+    {
+        extern uint8_t utest_a_start[], utest_a_end[];
+        extern uint8_t utest_b_start[], utest_b_end[];
+        extern uint8_t utest_crash_start[], utest_crash_end[];
+        kprintf("\n--- demo ordonnanceur (Phase 1) ---\n");
+        sched_new_flat_task("A", utest_a_start, (size_t)(utest_a_end - utest_a_start));
+        sched_new_flat_task("B", utest_b_start, (size_t)(utest_b_end - utest_b_start));
+        sched_new_flat_task("crash", utest_crash_start,
+                            (size_t)(utest_crash_end - utest_crash_start));
+        sched_run_until_idle();
+        kprintf("\n--- fin demo ordonnanceur (noyau intact) ---\n");
+    }
 
     // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
     net_init();

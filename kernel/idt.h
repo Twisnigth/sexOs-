@@ -16,6 +16,10 @@ typedef struct {
 
 typedef void (*irq_handler_t)(registers_t *);
 
+// Répartiteur appelé par isr.asm ; renvoie le contexte à restaurer (permet la
+// commutation de tâche : il peut renvoyer une pile noyau différente).
+registers_t *isr_dispatch(registers_t *r);
+
 void idt_init(void);
 // Enregistre un gestionnaire pour une IRQ matérielle (0-15).
 void irq_register(uint8_t irq, irq_handler_t handler);

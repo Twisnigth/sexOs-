@@ -6,6 +6,7 @@
 #include "pic.h"
 #include "klib.h"
 #include "io.h"
+#include "sched.h"
 
 struct idt_entry {
     uint16_t offset_low;
@@ -62,9 +63,23 @@ static const char *exception_names[] = {
     "Exception SIMD", "Virtualisation", "Securite control-flow"
 };
 
-// Appelé depuis isr.asm.
-void isr_dispatch(registers_t *r) {
+// Appelé depuis isr.asm. Renvoie le contexte à restaurer (cf. isr_common).
+registers_t *isr_dispatch(registers_t *r) {
     if (r->int_no < 32) {
+        // Faute venant du ring 3 alors que l'ordonnanceur tourne : on tue la
+        // tâche fautive et on rend la main à une autre. Le noyau survit.
+        if (sched_active() && (r->cs & 3) == 3) {
+            const char *name = (r->int_no < sizeof(exception_names) / sizeof(char *))
+                               ? exception_names[r->int_no] : "Inconnue";
+            kprintf("\n[FAUTE ring3] %u : %s  err=%x rip=%p\n",
+                    (unsigned)r->int_no, name, (unsigned)r->err_code, (void *)r->rip);
+            if (r->int_no == 14) {
+                uint64_t cr2; __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+                kprintf("  cr2 = %p\n", (void *)cr2);
+            }
+            return sched_on_fault(r);
+        }
+        // Faute en ring 0 : irrécupérable.
         const char *name = (r->int_no < sizeof(exception_names) / sizeof(char *))
                            ? exception_names[r->int_no] : "Inconnue";
         kprintf("\n[EXCEPTION] %u : %s\n", r->int_no, name);
@@ -82,7 +97,10 @@ void isr_dispatch(registers_t *r) {
         uint8_t irq = (uint8_t)(r->int_no - 32);
         if (irq_handlers[irq]) irq_handlers[irq](r);
         pic_send_eoi(irq);
+        // Préemption : à chaque top du minuteur, l'ordonnanceur peut commuter.
+        if (irq == 0) return sched_on_timer(r);
     }
+    return r;
 }
 
 void irq_register(uint8_t irq, irq_handler_t handler) {

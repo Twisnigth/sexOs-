@@ -13,6 +13,7 @@
 #include "klib.h"
 #include "serial.h"
 #include "pit.h"
+#include "sched.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -154,8 +155,9 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_fstat: case SYS_openat: return -2;        // -ENOENT (FS non exposé)
     case SYS_exit: case SYS_exit_group:
+        if (sched_active()) sched_task_exit((int)a->rdi);  // tâche ordonnancée
         exit_code = (int)a->rdi;
-        user_exit();                                    // ne revient pas
+        user_exit();                                    // ne revient pas (legacy)
         return 0;
     default:
         kprintf("[sys] non gere : num=%u\n", a->rax);

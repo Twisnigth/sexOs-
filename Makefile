@@ -64,6 +64,19 @@ $(OBJDIR)/%_asm.o: $(KDIR)/%.asm
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 
+# ---- Programmes de test ring 3 (Phase 1) : binaires plats embarqués ---------
+UTEST_BINS := $(OBJDIR)/taskA.bin $(OBJDIR)/taskB.bin $(OBJDIR)/crash.bin
+
+$(OBJDIR)/%.bin: user_tests/%.asm
+	@mkdir -p $(OBJDIR)
+	$(ASM) -f bin $< -o $@
+
+# user_blobs.asm incbin les .bin : dépendance explicite (prioritaire sur le
+# motif générique ci-dessus).
+$(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS)
+	@mkdir -p $(OBJDIR)
+	$(ASM) -f elf64 $< -o $@
+
 $(OBJDIR)/mc_%.o: $(MCDIR)/%.c
 	@mkdir -p $(OBJDIR)
 	$(CC) $(CFLAGS) -c $< -o $@

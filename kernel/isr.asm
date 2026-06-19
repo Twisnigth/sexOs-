@@ -107,6 +107,9 @@ isr_common:
     mov rdi, rsp            ; 1er argument = pointeur sur les registres sauvegardés
     cld
     call isr_dispatch
+    ; isr_dispatch renvoie le contexte à restaurer (rax). En temps normal c'est
+    ; le même ; lors d'une commutation de tâche, c'est une autre pile noyau.
+    mov rsp, rax
 
     pop r15
     pop r14
