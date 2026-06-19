@@ -20,6 +20,18 @@ static inline void invlpg(uint64_t v) {
     __asm__ volatile ("invlpg (%0)" : : "r"(v) : "memory");
 }
 
+// Programme l'entrée PAT n°7 (sélectionnée par PAT|PCD|PWT) en Write-Combining,
+// sans toucher aux entrées PA0..PA6 (donc aucun mappage existant n'est perturbé).
+// Le framebuffer mappé avec PTE_WC devient ainsi WC : écritures séquentielles
+// regroupées -> bien plus rapide que le write-through pour les copies d'écran.
+void vmm_pat_init(void) {
+    uint32_t lo, hi;
+    __asm__ volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(0x277));   // IA32_PAT
+    hi = (hi & 0x00FFFFFFu) | 0x01000000u;                          // PA7 = 0x01 (WC)
+    __asm__ volatile ("wrmsr" : : "c"(0x277), "a"(lo), "d"(hi));
+    __asm__ volatile ("mov %%cr3, %%rax\n\t mov %%rax, %%cr3" ::: "rax", "memory"); // flush TLB
+}
+
 // Renvoie un pointeur (via HHDM) vers la table de niveau suivant, en la créant
 // si nécessaire (les tables intermédiaires sont marquées USER pour autoriser
 // l'accès ring 3 ; la protection réelle est portée par l'entrée feuille).

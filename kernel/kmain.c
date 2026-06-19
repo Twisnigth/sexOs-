@@ -22,6 +22,7 @@
 #include "io.h"
 #include "pmm.h"
 #include "heap.h"
+#include "vmm.h"
 #include "ps2.h"
 #include "rtc.h"
 #include "pci.h"
@@ -169,6 +170,7 @@ void kmain(void) {
     // --- Phase 2 : mémoire ---------------------------------------------------
     pmm_init();
     heap_init();
+    vmm_pat_init();          // entrée PAT Write-Combining (framebuffer rapide)
 
     // --- Horloge + bus PCI ---------------------------------------------------
     rtc_init();

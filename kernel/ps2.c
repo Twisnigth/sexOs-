@@ -193,8 +193,11 @@ void ps2_init(void) {
     ps2_cmd(0x60);
     ps2_wait_write(); outb(PS2_DATA, config);
 
-    // Réglages souris : valeurs par défaut puis activation du report.
-    mouse_write(0xF6); mouse_read();     // ACK
+    // Réglages souris : défauts, puis cadence d'échantillonnage 200 Hz (curseur
+    // plus fluide que les 100 Hz par défaut), puis activation du report.
+    mouse_write(0xF6); mouse_read();     // ACK (valeurs par défaut)
+    mouse_write(0xF3); mouse_read();     // set sample rate
+    mouse_write(200);  mouse_read();     // 200 échantillons/s
     mouse_write(0xF4); mouse_read();     // ACK (active le report de données)
 
     irq_register(1, keyboard_irq);

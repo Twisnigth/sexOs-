@@ -258,8 +258,10 @@ long syscall_dispatch(sysargs_t *a) {
         uint64_t bytes = (uint64_t)pitch * h;
         uint64_t va    = 0xE0000000ULL;            // VA utilisateur du framebuffer
         uint64_t cur   = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
+        // Write-Combining (PTE_WC) : les copies vers le framebuffer (lent en
+        // écriture) sont regroupées -> beaucoup plus rapides que le write-through.
         for (uint64_t off = 0; off < bytes; off += 4096)
-            vmm_map_page_in(cur, va + off, phys + off, PTE_USER | PTE_WRITE | PTE_PWT);
+            vmm_map_page_in(cur, va + off, phys + off, PTE_USER | PTE_WRITE | PTE_WC);
         if (fi) { fi->addr = va; fi->width = fb_width(); fi->height = h; fi->pitch = pitch; }
         sched_account_pages(bytes / 4096);   // framebuffer mappé chez le compositeur
         return 0;

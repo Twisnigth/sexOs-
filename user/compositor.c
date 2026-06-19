@@ -293,17 +293,16 @@ int main(void) {
         }
 
         // (3) Mise à jour de l'écran : on ne pousse au framebuffer (lent) que les
-        //  zones réellement modifiées (recomposition partielle de 'back'), puis on
-        //  rafraîchit le curseur logiciel : restauration du fond sous l'ancienne
-        //  position (depuis 'back', sans curseur) + tracé à la nouvelle. Coût par
-        //  trame : la zone modifiée + 2 carrés de 8x8 — au lieu de tout l'écran.
+        //  zones réellement modifiées (recomposition partielle). Le curseur logiciel
+        //  est RETRACÉ à chaque trame (8x8, idempotent -> pas de clignotement) ; on
+        //  n'efface l'ancienne position QUE lorsqu'il bouge (sinon pas de traînée).
         if (need_recompose) {
             compose_back();
             if (d_full || !d_any) blit_region(0, 0, (int)screen.width, (int)screen.height);
             else blit_region(d_x0, d_y0, d_x1 - d_x0, d_y1 - d_y0);
         }
-        blit_region(pcx, pcy, 8, 8);     // restaure le fond sous l'ancien curseur
-        draw_cursor_screen(cx, cy);      // redessine le curseur à sa position
+        if (cx != pcx || cy != pcy) blit_region(pcx, pcy, 8, 8);   // efface l'ancien (déplacement)
+        draw_cursor_screen(cx, cy);                                // retrace le curseur (toujours)
         pcx = cx; pcy = cy;
         sys_yield();                     // commutation coopérative (pas de busy-poll)
     }
