@@ -33,9 +33,13 @@ application **à la demande** — **Terminal**, **Explorateur de fichiers**,
 d'application est contenu par le noyau (la tâche fautive est tuée, sa fenêtre
 récupérée, le reste du système continue).
 
-**Navigateur web (HTTP)** : `user/web.c` récupère des pages via une vraie pile
-réseau (DNS + TCP + HTTP/1.1) au moyen de **sockets non bloquantes** servies par
-une tâche réseau du noyau. Pour l'essayer en QEMU :
+**Navigateur web** : `user/web.c` récupère des pages via une vraie pile réseau
+(DNS + TCP + HTTP/1.1, **sockets non bloquantes**) et les **rend réellement** :
+`user/html.c` est un mini-moteur (parseur **HTML → DOM** + mise en page **box
+model**) qui affiche titres, paragraphes, **gras**, listes à puces/numérotées,
+code en ligne, et **liens cliquables** (clic = navigation, URL relatives
+résolues). Limites : pas de JavaScript ni de CSS complet (cf. docs), donc viser
+des pages HTML statiques. Pour l'essayer en QEMU :
 1. sur l'hôte, servez un dossier : `python3 -m http.server 8000` ;
 2. lancez sexOs avec le réseau : `make run-net` ;
 3. dans le navigateur, l'adresse `http://10.0.2.2:8000/` pointe vers l'hôte

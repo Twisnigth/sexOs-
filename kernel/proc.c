@@ -60,7 +60,7 @@ static int exit_code;
 
 // --- IPC : table de mémoire partagée + pid du compositeur --------------------
 #define SHM_MAX   32
-#define SHM_PAGES 512                  // jusqu'à 2 Mio par objet partagé
+#define SHM_PAGES 1280                 // jusqu'à 5 Mio par objet (fenêtres plus grandes)
 typedef struct { int used; int npages; uint64_t pages[SHM_PAGES]; } shm_obj_t;
 static shm_obj_t shms[SHM_MAX];
 static int compositor_pid;
