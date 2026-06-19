@@ -216,6 +216,18 @@ void kmain(void) {
         kprintf("--- fin demo graphique ring 3 ---\n");
     }
 
+    // --- Compositeur / WM en RING 3 (refactor Phase 3) -----------------------
+    //  Le bureau (compositeur + fenêtres déplaçables/fermables) tourne en CPL 3,
+    //  possède le framebuffer et le flux d'entrées via syscalls. Réutilise le
+    //  vrai gfx.c recompilé pour l'espace utilisateur.
+    {
+        extern uint8_t uwm_start[], uwm_end[];
+        kprintf("\n--- compositeur ring 3 (Phase 3) ---\n");
+        sched_new_elf_task("wm", uwm_start, (size_t)(uwm_end - uwm_start));
+        sched_run_until_idle();
+        kprintf("--- fin compositeur ring 3 ---\n");
+    }
+
     // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
     net_init();
     if (nic_present()) { net_dhcp(); ssh_server_init(); }

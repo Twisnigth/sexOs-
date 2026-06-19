@@ -22,6 +22,8 @@ static inline long _sc3(long n, long a1, long a2, long a3) {
     return r;
 }
 
+// Allocation : s'appuie sur l'ABI Linux mmap (rsi = taille).
+static inline void    *sys_alloc(unsigned long n) { return (void *)_sc3(9, 0, (long)n, 0); }
 static inline int      sys_fb_map(fbinfo_t *fi)   { return (int)_sc1(SYS_fb_map, (long)fi); }
 static inline int      sys_input_poll(event_t *e) { return (int)_sc1(SYS_input_poll, (long)e); }
 static inline uint64_t sys_time_ms(void)          { return (uint64_t)_sc0(SYS_time_ms); }

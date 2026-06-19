@@ -83,12 +83,19 @@ $(OBJDIR)/u_crt0.o: user/lib/crt0.asm
 $(OBJDIR)/u_%.o: user/%.c
 	@mkdir -p $(OBJDIR)
 	$(CC) $(UCFLAGS) -c $< -o $@
+# gfx.c du noyau recompilé pour l'espace utilisateur (code de dessin pur).
+$(OBJDIR)/u_gfx.o: $(KDIR)/gfx.c
+	@mkdir -p $(OBJDIR)
+	$(CC) $(UCFLAGS) -c $< -o $@
 $(OBJDIR)/gfxdemo.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_gfxdemo.o user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_gfxdemo.o
+$(OBJDIR)/wmserver.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_wmserver.o $(OBJDIR)/u_gfx.o user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_wmserver.o $(OBJDIR)/u_gfx.o
 
 # user_blobs.asm incbin les binaires : dépendance explicite (prioritaire sur le
 # motif générique ci-dessus).
-$(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) $(OBJDIR)/gfxdemo.elf
+$(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
+                            $(OBJDIR)/gfxdemo.elf $(OBJDIR)/wmserver.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

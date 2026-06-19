@@ -93,6 +93,10 @@ void syscall_init(void) {
 #define SYS_set_robust_list 273
 
 long syscall_dispatch(sysargs_t *a) {
+    // L'appel système s'exécute dans l'espace d'adressage de l'appelant : on
+    // mappe toujours dans le PML4 courant (correct pour CHAQUE tâche ordonnancée,
+    // contrairement à l'ancien cur_pml4 global mono-processus).
+    uint64_t aspace = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
     switch (a->rax) {
     case SYS_write:
         if (a->rdi == 1 || a->rdi == 2) { user_write((const char *)a->rsi, (int)a->rdx); return a->rdx; }
@@ -113,7 +117,7 @@ long syscall_dispatch(sysargs_t *a) {
         if (a->rdi > cur_brk) {
             for (uint64_t va = (cur_brk + 0xFFF) & ~0xFFFULL; va < a->rdi; va += 4096) {
                 uint64_t p = pmm_alloc_page(); if (!p) break;
-                vmm_map_page_in(cur_pml4, va, p, PTE_USER | PTE_WRITE);
+                vmm_map_page_in(aspace, va, p, PTE_USER | PTE_WRITE);
             }
             cur_brk = a->rdi;
         }
@@ -124,7 +128,7 @@ long syscall_dispatch(sysargs_t *a) {
         uint64_t base = mmap_base; mmap_base += len + 0x1000;
         for (uint64_t off = 0; off < len; off += 4096) {
             uint64_t p = pmm_alloc_page(); if (!p) return -12;   // -ENOMEM
-            vmm_map_page_in(cur_pml4, base + off, p, PTE_USER | PTE_WRITE);
+            vmm_map_page_in(aspace, base + off, p, PTE_USER | PTE_WRITE);
         }
         return base;
     }
