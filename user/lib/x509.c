@@ -5,6 +5,7 @@
 #include "rsa.h"
 #include "ecdsa.h"
 #include "crypto.h"
+#include "sha384.h"
 
 unsigned long strlen(const char *);
 
@@ -46,6 +47,7 @@ static int oid_eq(const uint8_t *o, int ol, const uint8_t *ref, int rl) {
 static const uint8_t OID_RSA_PKCS1_SHA256[] = {0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x0b};
 static const uint8_t OID_RSA_PSS[]          = {0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x0a};
 static const uint8_t OID_ECDSA_SHA256[]     = {0x2a,0x86,0x48,0xce,0x3d,0x04,0x03,0x02};
+static const uint8_t OID_ECDSA_SHA384[]     = {0x2a,0x86,0x48,0xce,0x3d,0x04,0x03,0x03};
 static const uint8_t OID_RSA_ENC[]          = {0x2a,0x86,0x48,0x86,0xf7,0x0d,0x01,0x01,0x01};
 static const uint8_t OID_EC_PUBKEY[]        = {0x2a,0x86,0x48,0xce,0x3d,0x02,0x01};   // id-ecPublicKey
 static const uint8_t OID_SAN[]              = {0x55,0x1d,0x11};   // 2.5.29.17
@@ -54,6 +56,7 @@ static int sigalg_from_oid(const uint8_t *o, int ol) {
     if (oid_eq(o, ol, OID_RSA_PKCS1_SHA256, sizeof OID_RSA_PKCS1_SHA256)) return SIGALG_RSA_PKCS1_SHA256;
     if (oid_eq(o, ol, OID_RSA_PSS, sizeof OID_RSA_PSS)) return SIGALG_RSA_PSS_SHA256;
     if (oid_eq(o, ol, OID_ECDSA_SHA256, sizeof OID_ECDSA_SHA256)) return SIGALG_ECDSA_SHA256;
+    if (oid_eq(o, ol, OID_ECDSA_SHA384, sizeof OID_ECDSA_SHA384)) return SIGALG_ECDSA_SHA384;
     return SIGALG_UNKNOWN;
 }
 
@@ -142,8 +145,11 @@ int x509_parse(const uint8_t *der, int len, x509_cert *c) {
         if (!der_read(&sin, send, &tag, &val, &vlen) || tag != 0x02) return -1; // exponent
         c->pub_e = val; c->pub_e_len = vlen;
       } else if (is_ec && vlen == 66 && val[1] == 0x04) {       // point P-256 : 00 04 X(32) Y(32)
-        c->pub_is_ec = 1;
+        c->pub_is_ec = 1; c->ec_curve = 256;
         for (int i = 0; i < 32; i++) { c->ec_qx[i] = val[2 + i]; c->ec_qy[i] = val[34 + i]; }
+      } else if (is_ec && vlen == 98 && val[1] == 0x04) {       // point P-384 : 00 04 X(48) Y(48)
+        c->pub_is_ec = 1; c->ec_curve = 384;
+        for (int i = 0; i < 48; i++) { c->ec_qx[i] = val[2 + i]; c->ec_qy[i] = val[50 + i]; }
       }
     }
     // extensions [3] EXPLICIT (optionnel) : on cherche le SAN.
@@ -182,9 +188,13 @@ int x509_verify_signed_by(const x509_cert *child, const x509_cert *iss) {
         return rsa_verify_pkcs1_sha256(&iss->pub_n, iss->pub_e, iss->pub_e_len, child->sig, child->sig_len, h);
     if (child->sig_alg == SIGALG_RSA_PSS_SHA256 && iss->pub_is_rsa)
         return rsa_verify_pss_sha256(&iss->pub_n, iss->pub_e, iss->pub_e_len, child->sig, child->sig_len, h);
-    if (child->sig_alg == SIGALG_ECDSA_SHA256 && iss->pub_is_ec)
+    if (child->sig_alg == SIGALG_ECDSA_SHA256 && iss->pub_is_ec && iss->ec_curve == 256)
         return ecdsa_p256_verify(iss->ec_qx, iss->ec_qy, child->sig, child->sig_len, h);
-    return 0;                                          // algo/clé non gérés (ex. P-384)
+    if (child->sig_alg == SIGALG_ECDSA_SHA384 && iss->pub_is_ec && iss->ec_curve == 384) {
+        uint8_t h384[48]; sha384(child->tbs, child->tbs_len, h384);
+        return ecdsa_p384_verify(iss->ec_qx, iss->ec_qy, child->sig, child->sig_len, h384);
+    }
+    return 0;                                          // algo/clé non gérés
 }
 
 // Compare un motif SAN (ex. "*.exemple.fr") à 'host' (insensible à la casse).

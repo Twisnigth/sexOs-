@@ -94,10 +94,10 @@ système). Aucune application ne bloque le système ; aucune ne sonde le NIC.
 `user/lib/tls.c` ajoute un **client TLS 1.3** au-dessus des sockets, et `http.c`
 l'utilise automatiquement pour les URL `https://` (port 443 par défaut).
 
-- **Suite unique** : `TLS_CHACHA20_POLY1305_SHA256`, échange de clés **X25519**.
-  Compatible avec la majorité des serveurs modernes (CDN, etc.), qui acceptent
-  ChaCha20-Poly1305 + X25519. Les serveurs n'offrant qu'AES-GCM ou des courbes
-  NIST échoueront (AES non implémenté ici).
+- **Suites** : `TLS_AES_128_GCM_SHA256` **et** `TLS_CHACHA20_POLY1305_SHA256`,
+  échange de clés **X25519**. Couvre l'immense majorité des serveurs (AES-128-GCM
+  est obligatoire en TLS 1.3). AES-128 + GCM (`aesgcm.c`) testé contre les
+  vecteurs NIST.
 - **Crypto réutilisée** : Monocypher (X25519, ChaCha20-IETF, Poly1305) recompilé
   pour le ring 3, + le SHA-256 du noyau. AEAD RFC 8439 et **HKDF** (HMAC-SHA256,
   `HKDF-Expand-Label`, key schedule complet) écrits dans `tls.c`. Aléa fourni par
@@ -117,9 +117,9 @@ La chaîne de certificats est **vérifiée** (RSA et ECDSA P-256) :
   (testée contre `pow()` de Python ; réduction à largeur adaptative).
 - **RSA** (`rsa.c`) : vérification **PKCS#1 v1.5** et **PSS** (MGF1-SHA256),
   RFC 8017 (testée contre OpenSSL/Python).
-- **ECDSA P-256** (`ecdsa.c`) : arithmétique de courbe en coordonnées
-  **jacobiennes** (corps P-256, ordre n), vérification `secp256r1` + SHA-256
-  (testée contre des signatures OpenSSL ; signatures DER).
+- **ECDSA P-256 et P-384** (`ecdsa.c`) : arithmétique de courbe en coordonnées
+  **jacobiennes** (corps + ordre paramétrés par courbe), `secp256r1`/SHA-256 et
+  `secp384r1`/**SHA-384** (`sha384.c`), signatures DER. Testées contre OpenSSL.
 - **X.509** (`x509.c`) : analyseur **ASN.1/DER**, clés publiques **RSA et EC**,
   dates, **SubjectAltName** (DNS et IP), DN ; « cert signé par cert » (RSA/ECDSA).
 - **Magasin d'AC** (`castore.c`) : **~150 autorités racines** (paquet système
@@ -132,9 +132,11 @@ La chaîne de certificats est **vérifiée** (RSA et ECDSA P-256) :
 **HTTP/HTTPS complet** : le client suit aussi les **redirections** (3xx +
 `Location`, jusqu'à 6 sauts) et accepte des pages jusqu'à ~400 Kio.
 
-**Vérifié en QEMU** :
-- contre un serveur **TLS 1.3 ECDSA** réel (OpenSSL) : `[TLS verifie]`
-  (`docs/ring3-https-ecdsa.png`) ;
+**Vérifié en QEMU** (serveurs OpenSSL, certificat signé par la racine de test) :
+- **ECDSA P-256** → `[TLS verifie]` (`docs/ring3-https-ecdsa.png`) ;
+- **AES-128-GCM** (suite forcée) → `[TLS verifie]`, la page indique
+  `Cipher : TLS_AES_128_GCM_SHA256` (`docs/ring3-https-aesgcm.png`) ;
+- **ECDSA P-384 / SHA-384** → `[TLS verifie]` (`docs/ring3-https-p384.png`) ;
 - redirection `302` suivie jusqu'à la page finale (`HTTP 200`) ;
 - connexion à **`https://google.com`** sur l'Internet réel : handshake + chaîne
   **RSA multi-certificats** vérifiée → `[TLS verifie]`
@@ -153,9 +155,9 @@ La chaîne de certificats est **vérifiée** (RSA et ECDSA P-256) :
 
 ## Reste à faire (périmètre assumé)
 
-- **ECDSA P-384** (et Ed25519) : certaines AC racines/chaînes les utilisent ; en
-  attendant ces maillons sont signalés « non vérifiés ».
-- **AES-GCM** : pour interopérer avec les serveurs qui n'offrent pas ChaCha20.
+- **AES-256-GCM** (`TLS_AES_256_GCM_SHA384`) et **Ed25519** : rarement
+  indispensables (AES-128-GCM/ChaCha20 + RSA/ECDSA couvrent le web courant) ;
+  ces maillons restent signalés « non vérifiés ».
 - **SSH** : le serveur est encore écrit en style **bloquant** et n'a pas été
   porté sur le modèle non bloquant de la tâche réseau ; il reste donc dormant
   pendant que le bureau tourne (à porter comme le client HTTP).

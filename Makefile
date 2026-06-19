@@ -138,7 +138,7 @@ $(OBJDIR)/u_monocypher.o: $(MCDIR)/monocypher.c
 	$(CC) $(UCFLAGS) -c $< -o $@
 # Navigateur web : compositeur + pile réseau + TLS 1.3 (HTTP/HTTPS en ring 3).
 WEB_OBJS := $(OBJDIR)/u_web.o $(OBJDIR)/u_http.o $(OBJDIR)/u_tls.o \
-            $(OBJDIR)/u_bigint.o $(OBJDIR)/u_rsa.o $(OBJDIR)/u_ecdsa.o $(OBJDIR)/u_x509.o $(OBJDIR)/u_castore.o \
+            $(OBJDIR)/u_bigint.o $(OBJDIR)/u_rsa.o $(OBJDIR)/u_ecdsa.o $(OBJDIR)/u_aesgcm.o $(OBJDIR)/u_sha384.o $(OBJDIR)/u_x509.o $(OBJDIR)/u_castore.o \
             $(OBJDIR)/u_monocypher.o $(OBJDIR)/uk_sha256.o
 $(OBJDIR)/web.elf: $(WEB_OBJS) $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(WEB_OBJS) $(APPLIBS)

@@ -31,12 +31,12 @@ une tâche réseau du noyau. Pour l'essayer en QEMU :
 3. dans le navigateur, l'adresse `http://10.0.2.2:8000/` pointe vers l'hôte
    (passerelle SLIRP).
 
-**HTTPS / TLS 1.3** est géré (suite `TLS_CHACHA20_POLY1305_SHA256`, échange
-X25519), avec **vérification de certificat RSA et ECDSA P-256**, un **magasin
-d'environ 150 AC racines** (paquet Mozilla), le suivi des **redirections** et le
-**nom d'hôte (SAN)**. Le navigateur affiche `[TLS verifie]` / `[TLS non verifie]`.
-La page d'accueil par défaut est `https://google.com/`. Limites : ECDSA **P-384**
-et **AES-GCM** pas encore gérés (sites concernés affichés « non vérifié »).
+**HTTPS / TLS 1.3** est géré : suites **AES-128-GCM** et **ChaCha20-Poly1305**,
+échange **X25519**, **vérification de certificat RSA, ECDSA P-256 et P-384**,
+**magasin d'environ 150 AC racines** (paquet Mozilla), suivi des **redirections**
+et contrôle du **nom d'hôte (SAN)**. Le navigateur affiche `[TLS verifie]` /
+`[TLS non verifie]`. Page d'accueil par défaut : `https://google.com/`.
+Limites résiduelles : AES-256-GCM et Ed25519 (peu courants) non gérés.
 
 > Remarque : sous certains hyperviseurs/réseaux d'entreprise qui **interceptent
 > le TLS**, le certificat présenté n'est pas celui du vrai site — le navigateur

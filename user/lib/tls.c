@@ -14,7 +14,11 @@
 #include "x509.h"
 #include "rsa.h"
 #include "ecdsa.h"
+#include "aesgcm.h"
+#include "sha384.h"
 #include "castore.h"
+
+static int g_aes;          // 1 = TLS_AES_128_GCM_SHA256 ; 0 = ChaCha20-Poly1305
 
 void *memcpy(void *, const void *, unsigned long);
 void *memset(void *, int, unsigned long);
@@ -53,6 +57,7 @@ static void poly_tag(const uint8_t otk[32], const uint8_t *aad, int al,
 static void aead_seal(const uint8_t key[32], const uint8_t nonce[12],
                       const uint8_t *aad, int al, const uint8_t *pt, int pl,
                       uint8_t *ct, uint8_t tag[16]) {
+    if (g_aes) { aes128gcm_seal(key, nonce, aad, al, pt, pl, ct, tag); return; }
     uint8_t otk[32], z[32]; memset(z, 0, 32);
     crypto_chacha20_ietf(otk, z, 32, key, nonce, 0);        // clé Poly1305 (bloc 0)
     crypto_chacha20_ietf(ct, pt, pl, key, nonce, 1);        // chiffrement (bloc 1+)
@@ -63,12 +68,12 @@ static void aead_seal(const uint8_t key[32], const uint8_t nonce[12],
 static int aead_open(const uint8_t key[32], const uint8_t nonce[12],
                      const uint8_t *aad, int al, const uint8_t *ct, int cl,
                      const uint8_t tag[16], uint8_t *pt) {
+    if (g_aes) return aes128gcm_open(key, nonce, aad, al, ct, cl, tag, pt);
     uint8_t otk[32], z[32]; memset(z, 0, 32);
     crypto_chacha20_ietf(otk, z, 32, key, nonce, 0);
     uint8_t exp[16]; poly_tag(otk, aad, al, ct, cl, exp);
     crypto_wipe(otk, 32);
     if (crypto_verify16(exp, tag) != 0) return -1;          // authentification
-    uint8_t k[32]; crypto_chacha20_ietf(otk, z, 32, key, nonce, 0); (void)k;
     crypto_chacha20_ietf(pt, ct, cl, key, nonce, 1);        // déchiffrement
     return 0;
 }
@@ -105,7 +110,7 @@ static void derive_secret(const uint8_t secret[32], const char *label,
 }
 
 static void traffic_keys(const uint8_t secret[32], uint8_t key[32], uint8_t iv[12]) {
-    expand_label(secret, "key", 0, 0, key, 32);
+    expand_label(secret, "key", 0, 0, key, g_aes ? 16 : 32);   // AES-128 : 16 o
     expand_label(secret, "iv", 0, 0, iv, 12);
 }
 
@@ -186,7 +191,7 @@ static int build_client_hello(uint8_t *o, const uint8_t random[32], const uint8_
     o[p++] = 0x03; o[p++] = 0x03;                           // legacy_version TLS1.2
     memcpy(o + p, random, 32); p += 32;
     o[p++] = 32; memcpy(o + p, sid, 32); p += 32;           // legacy_session_id
-    o[p++] = 0x00; o[p++] = 0x02; o[p++] = 0x13; o[p++] = 0x03;  // cipher: CHACHA20_POLY1305
+    o[p++]=0x00; o[p++]=0x04; o[p++]=0x13; o[p++]=0x01; o[p++]=0x13; o[p++]=0x03;  // AES_128_GCM, CHACHA20
     o[p++] = 0x01; o[p++] = 0x00;                           // compression: null
 
     int extpos = p; p += 2;                                 // longueur des extensions
@@ -195,7 +200,7 @@ static int build_client_hello(uint8_t *o, const uint8_t random[32], const uint8_
     // supported_groups (0x000a) -> x25519 (0x001d)
     o[p++]=0x00; o[p++]=0x0a; o[p++]=0x00; o[p++]=0x04; o[p++]=0x00; o[p++]=0x02; o[p++]=0x00; o[p++]=0x1d;
     // signature_algorithms (0x000d) : on offre les schemas courants (non verifies)
-    { static const uint8_t sa[] = {0x08,0x04, 0x04,0x03, 0x08,0x07, 0x04,0x01, 0x08,0x05, 0x06,0x01};
+    { static const uint8_t sa[] = {0x08,0x04, 0x04,0x03, 0x05,0x03, 0x08,0x07, 0x04,0x01, 0x08,0x05, 0x06,0x01};
       o[p++]=0x00; o[p++]=0x0d; o[p++]=0x00; o[p++]=(uint8_t)(sizeof sa + 2);
       o[p++]=0x00; o[p++]=(uint8_t)sizeof sa; memcpy(o+p, sa, sizeof sa); p += sizeof sa; }
     // key_share (0x0033) : x25519
@@ -266,9 +271,21 @@ static int cert_verify_sig(int scheme, const uint8_t *sig, int siglen, const uin
         return rsa_verify_pss_sha256(&leaf->pub_n, leaf->pub_e, leaf->pub_e_len, sig, siglen, h);
     if (scheme == 0x0401 && leaf->pub_is_rsa)        // rsa_pkcs1_sha256
         return rsa_verify_pkcs1_sha256(&leaf->pub_n, leaf->pub_e, leaf->pub_e_len, sig, siglen, h);
-    if (scheme == 0x0403 && leaf->pub_is_ec)         // ecdsa_secp256r1_sha256
+    if (scheme == 0x0403 && leaf->pub_is_ec && leaf->ec_curve == 256)   // ecdsa_secp256r1_sha256
         return ecdsa_p256_verify(leaf->ec_qx, leaf->ec_qy, sig, siglen, h);
-    return 0;                                         // SHA-384/P-384/Ed25519 : non géré
+    if (scheme == 0x0503 && leaf->pub_is_ec && leaf->ec_curve == 384) { // ecdsa_secp384r1_sha384
+        uint8_t h384[48];
+        // contenu CertificateVerify haché en SHA-384
+        uint8_t content[64 + 33 + 1 + 32]; int o2 = 0;
+        for (int i = 0; i < 64; i++) content[o2++] = 0x20;
+        const char *cx = "TLS 1.3, server CertificateVerify";
+        for (const char *q = cx; *q; q++) content[o2++] = *q;
+        content[o2++] = 0x00;
+        memcpy(content + o2, th_cert, 32); o2 += 32;
+        sha384(content, o2, h384);
+        return ecdsa_p384_verify(leaf->ec_qx, leaf->ec_qy, sig, siglen, h384);
+    }
+    return 0;                                         // autres schémas : non géré
 }
 
 // Vérifie la chaîne : hôte, dates, signatures, racine de confiance.
@@ -301,7 +318,7 @@ static uint8_t hsacc[20000];
 int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
     t->conn = conn; t->established = 0; t->eof = 0; t->rlen = t->roff = 0;
     t->verified = 0; t->verify_info[0] = 0;
-    g_ncerts = 0;
+    g_ncerts = 0; g_aes = 0;
     int dl = ms() + 12000;
     if (err) *err = 0;
     uint8_t th_cert[32]; int have_th_cert = 0, cv_ok = 0;
@@ -338,7 +355,9 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
     {
         int p = 4 + 2 + 32;                                // hs hdr + version + random
         int sidl = recbody[p++]; p += sidl;                // session_id echo
-        p += 2;                                            // cipher_suite
+        int cs = (recbody[p] << 8) | recbody[p+1]; p += 2; // cipher_suite choisi
+        g_aes = (cs == 0x1301);                            // AES-128-GCM, sinon ChaCha20
+        if (cs != 0x1301 && cs != 0x1303) { if (err) *err = "suite TLS non supportee"; return -1; }
         p += 1;                                            // compression
         int extlen = (recbody[p] << 8) | recbody[p+1]; p += 2;
         int end = p + extlen;

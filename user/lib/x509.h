@@ -11,7 +11,8 @@
 #include <stdint.h>
 #include "bigint.h"
 
-enum { SIGALG_UNKNOWN = 0, SIGALG_RSA_PKCS1_SHA256, SIGALG_RSA_PSS_SHA256, SIGALG_ECDSA_SHA256 };
+enum { SIGALG_UNKNOWN = 0, SIGALG_RSA_PKCS1_SHA256, SIGALG_RSA_PSS_SHA256,
+       SIGALG_ECDSA_SHA256, SIGALG_ECDSA_SHA384 };
 
 typedef struct {
     const uint8_t *tbs;      int tbs_len;     // portion signée (TBSCertificate)
@@ -19,8 +20,9 @@ typedef struct {
     int            sig_alg;                   // algo de signature du certificat
     int            pub_is_rsa;
     bn_t           pub_n;    const uint8_t *pub_e; int pub_e_len;   // clé publique RSA
-    int            pub_is_ec;                 // clé publique ECDSA P-256
-    uint8_t        ec_qx[32], ec_qy[32];
+    int            pub_is_ec;                 // clé publique ECDSA (P-256 ou P-384)
+    int            ec_curve;                  // 256 ou 384
+    uint8_t        ec_qx[48], ec_qy[48];
     const uint8_t *subject;  int subject_len; // DN (SEQUENCE brute)
     const uint8_t *issuer;   int issuer_len;
     const uint8_t *spki;     int spki_len;    // SubjectPublicKeyInfo brut
