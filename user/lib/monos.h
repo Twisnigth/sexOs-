@@ -16,6 +16,11 @@ static inline long _sc1(long n, long a1) {
     long r; __asm__ volatile ("syscall" : "=a"(r) : "a"(n), "D"(a1) : "rcx", "r11", "memory");
     return r;
 }
+static inline long _sc2(long n, long a1, long a2) {
+    long r; __asm__ volatile ("syscall" : "=a"(r)
+             : "a"(n), "D"(a1), "S"(a2) : "rcx", "r11", "memory");
+    return r;
+}
 static inline long _sc3(long n, long a1, long a2, long a3) {
     long r; __asm__ volatile ("syscall" : "=a"(r)
              : "a"(n), "D"(a1), "S"(a2), "d"(a3) : "rcx", "r11", "memory");
@@ -31,5 +36,22 @@ static inline int      sys_get_cpl(void)          { return (int)_sc0(SYS_get_cpl
 static inline void     sys_write(const char *s, unsigned long n) { _sc3(1, 1, (long)s, (long)n); }
 static inline void     sys_exit(int code)         { _sc1(60, code); for (;;) {} }
 static inline void     sys_reboot(void)           { _sc0(SYS_reboot); for (;;) {} }
+static inline int      sys_getpid(void)           { return (int)_sc0(39); }
+
+// --- IPC ---------------------------------------------------------------------
+static inline int  sys_ipc_send(int pid, const void *buf, int len) {
+    return (int)_sc3(SYS_ipc_send, pid, (long)buf, len);
+}
+static inline int  sys_ipc_recv(void *buf, int max, int *sender) {
+    return (int)_sc3(SYS_ipc_recv, (long)buf, max, (long)sender);
+}
+static inline long sys_shm_create(unsigned long size, uint64_t *va) {
+    return _sc2(SYS_shm_create, (long)size, (long)va);
+}
+static inline int  sys_shm_map(int id, uint64_t *va) {
+    return (int)_sc2(SYS_shm_map, id, (long)va);
+}
+static inline void sys_comp_register(void) { _sc0(SYS_comp_register); }
+static inline int  sys_comp_pid(void)      { return (int)_sc0(SYS_comp_pid); }
 
 #endif

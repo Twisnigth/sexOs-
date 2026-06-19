@@ -15,6 +15,11 @@
 
 #define SCHED_MAX_TASKS 16
 
+// --- Messagerie inter-processus (IPC) ----------------------------------------
+#define IPC_MSG_MAX  128       // octets utiles par message
+#define IPC_MBOX_LEN 32        // messages en attente par tâche
+typedef struct { int sender; int len; uint8_t data[IPC_MSG_MAX]; } ipc_msg_t;
+
 typedef enum { TASK_UNUSED = 0, TASK_READY, TASK_RUNNING, TASK_ZOMBIE } task_state_t;
 
 typedef struct task {
@@ -27,9 +32,15 @@ typedef struct task {
     uint64_t     fs_base;       // base FS par tâche (TLS)
     uint64_t     brk;
     uint64_t     mmap_base;
+    uint64_t     shm_next;      // prochaine VA libre pour mapper de la mémoire partagée
+    ipc_msg_t    mbox[IPC_MBOX_LEN];
+    int          mbox_head, mbox_tail;
     int          exit_code;
     const char  *name;
 } task_t;
+
+// IPC : recherche d'une tâche par pid (pour la livraison de messages).
+task_t *sched_task_by_pid(int pid);
 
 // Crée une tâche ring 3 à partir d'un binaire « plat » chargé à 0x400000.
 int  sched_new_flat_task(const char *name, const uint8_t *code, size_t len);

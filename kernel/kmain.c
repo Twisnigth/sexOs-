@@ -213,11 +213,10 @@ void kmain(void) {
     vfs_init();
     users_init();
 
-    // --- Le BUREAU démarre en RING 3 (refactor Phase 3 : portage complet) ----
-    //  Le compositeur, le gestionnaire de fenêtres et TOUTES les applications
-    //  (terminal, explorateur, paramètres, éditeur, à propos) tournent à CPL 3.
-    //  kmain ne contient plus aucune logique applicative : il crée la tâche du
-    //  bureau puis cède la main à l'ordonnanceur (idle hlt si le bureau meurt).
+    // --- Le BUREAU démarre en RING 3 ----------------------------------------
+    //  Modèle stable : compositeur + WM + applications dans UN processus ring 3.
+    //  (Le découpage en processus séparés reliés par IPC est en cours dans
+    //  user/compositor.c + user/app_*.c ; voir docs/ARCHITECTURE-rings.md.)
     {
         extern uint8_t udesk_start[], udesk_end[];
         kprintf("[boot] lancement du bureau en ring 3\n");

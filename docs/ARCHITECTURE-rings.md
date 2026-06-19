@@ -68,12 +68,33 @@ Natifs MonOS (≥ 0x200, cf. `kernel/syscalls.h`) : `get_cpl (0x200)`,
   cède la main à l'ordonnanceur (`sched_start`). Plus de `desktop_run` en ring 0.
 - ✅ **Le bureau entier (compositeur + WM + 5 applications) tourne en ring 3.**
 
+## Découpage en processus séparés (IPC) — EN COURS
+
+L'infrastructure d'un vrai serveur d'affichage multi-processus est en place :
+- **Syscalls IPC** (`kernel/proc.c`, `kernel/syscalls.h`) : `ipc_send`/`ipc_recv`
+  (messagerie par mailbox par tâche), `shm_create`/`shm_map` (mémoire partagée
+  entre espaces d'adressage), `comp_register`/`comp_pid`.
+- **Compositeur serveur** (`user/compositor.c`) : possède le framebuffer + les
+  entrées, alloue un tampon partagé (shm) par fenêtre, route les événements.
+- **Bibliothèque cliente** (`user/lib/libwin.c`) + **applications séparées**
+  (`user/app_clock.c`, `app_hello.c`, `app_crash.c`), chacune un processus ring 3.
+
+État **honnête** : ça fonctionne **partiellement** — plusieurs processus
+séparés se créent, communiquent par IPC (vérifié : des applis reçoivent bien
+leur réponse de création de fenêtre du compositeur via mailbox) et dessinent
+dans une mémoire partagée. **Mais ce n'est pas encore stable** : le modèle de
+sondage actif (busy-poll) des applis crée des courses avec la préemption (une
+appli reste parfois bloquée, glitch d'affichage occasionnel). La correction
+propre est une **IPC bloquante** (une tâche en attente de message dort et est
+réveillée à la livraison), ce qui exige d'unifier l'entrée syscall avec la
+sauvegarde de contexte des interruptions — un chantier conséquent non terminé.
+
+Par sécurité, le **boot par défaut lance le bureau mono-processus stable**
+(Phase 3). Le code multi-processus reste dans l'arbre pour la suite.
+
 ## Reste à faire (honnêteté sur le périmètre)
 
-- **IPC compositeur ↔ applications** : aujourd'hui le bureau est UN seul processus
-  ring 3 (compositeur + applis dans le même espace). Pour faire de chaque appli un
-  **processus isolé** (un crash d'appli ne touche pas le compositeur), il faut une
-  primitive IPC (mémoire partagée des buffers de fenêtre + messages d'événements).
+- **IPC bloquante** pour stabiliser le découpage en processus séparés (ci-dessus).
 - **Commandes réseau / SSH / pacman / busybox du terminal** : indisponibles dans
   le bureau ring 3 (elles dépendent de pilotes noyau) ; elles nécessiteraient des
   syscalls réseau dédiés. Stubs pour l'instant.

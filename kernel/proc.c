@@ -54,6 +54,23 @@ static uint64_t mmap_base = 0x100000000000ULL;   // zone pour les mmap anonymes
 static uint64_t cur_pml4;
 static int exit_code;
 
+// --- IPC : table de mémoire partagée + pid du compositeur --------------------
+#define SHM_MAX   32
+#define SHM_PAGES 512                  // jusqu'à 2 Mio par objet partagé
+typedef struct { int used; int npages; uint64_t pages[SHM_PAGES]; } shm_obj_t;
+static shm_obj_t shms[SHM_MAX];
+static int compositor_pid;
+
+// Mappe les pages de 'o' dans l'espace courant à une VA libre de la tâche.
+static uint64_t shm_map_into(task_t *t, shm_obj_t *o) {
+    uint64_t aspace = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
+    uint64_t va = t->shm_next;
+    for (int i = 0; i < o->npages; i++)
+        vmm_map_page_in(aspace, va + (uint64_t)i * 4096, o->pages[i], PTE_USER | PTE_WRITE);
+    t->shm_next += (uint64_t)(o->npages + 1) * 4096;   // +1 page de garde
+    return va;
+}
+
 // Sortie standard (par défaut : port série ; redirigeable vers le terminal).
 static void (*out_fn)(const char *, int);
 void proc_set_output(void (*fn)(const char *, int)) { out_fn = fn; }
@@ -141,7 +158,7 @@ long syscall_dispatch(sysargs_t *a) {
     case SYS_munmap: return 0;                        // libéré paresseusement
     case SYS_set_tid_address: return 1;
     case SYS_set_robust_list: return 0;
-    case SYS_getpid: return 1;
+    case SYS_getpid: { task_t *c = sched_current(); return c ? c->pid : 1; }
     case SYS_getuid: case SYS_geteuid: case SYS_getgid: case SYS_getegid: return 0;
     case SYS_ioctl: return -25;                       // -ENOTTY (stdout non-tty)
     case SYS_close: return 0;
@@ -212,6 +229,59 @@ long syscall_dispatch(sysargs_t *a) {
     case SYS_reboot:
         outb(0x64, 0xFE);
         return 0;
+    // --- IPC -----------------------------------------------------------------
+    case SYS_ipc_send: {
+        task_t *dst = sched_task_by_pid((int)a->rdi);
+        task_t *me  = sched_current();
+        if (!dst || dst->state == TASK_ZOMBIE) return -1;
+        int len = (int)a->rdx; if (len > IPC_MSG_MAX) len = IPC_MSG_MAX;
+        int nxt = (dst->mbox_tail + 1) % IPC_MBOX_LEN;
+        if (nxt == dst->mbox_head) return -1;            // boîte pleine
+        ipc_msg_t *m = &dst->mbox[dst->mbox_tail];
+        m->sender = me ? me->pid : 0; m->len = len;
+        memcpy(m->data, (const void *)a->rsi, len);
+        dst->mbox_tail = nxt;
+        return 0;
+    }
+    case SYS_ipc_recv: {
+        task_t *me = sched_current();
+        if (!me || me->mbox_head == me->mbox_tail) return -1;   // vide (non bloquant)
+        ipc_msg_t *m = &me->mbox[me->mbox_head];
+        int len = m->len; if (len > (int)a->rsi) len = (int)a->rsi;
+        memcpy((void *)a->rdi, m->data, len);
+        if (a->rdx) *(int *)a->rdx = m->sender;          // pid de l'émetteur
+        me->mbox_head = (me->mbox_head + 1) % IPC_MBOX_LEN;
+        return len;
+    }
+    case SYS_shm_create: {
+        uint64_t size = a->rdi;
+        int np = (int)((size + 4095) / 4096);
+        if (np <= 0 || np > SHM_PAGES) return -1;
+        int id = -1;
+        for (int i = 0; i < SHM_MAX; i++) if (!shms[i].used) { id = i; break; }
+        if (id < 0) return -1;
+        shms[id].used = 1; shms[id].npages = np;
+        for (int i = 0; i < np; i++) {
+            uint64_t p = pmm_alloc_page();
+            if (!p) { shms[id].used = 0; return -1; }
+            shms[id].pages[i] = p;
+        }
+        uint64_t va = shm_map_into(sched_current(), &shms[id]);
+        if (a->rsi) *(uint64_t *)a->rsi = va;
+        return id;
+    }
+    case SYS_shm_map: {
+        int id = (int)a->rdi;
+        if (id < 0 || id >= SHM_MAX || !shms[id].used) return -1;
+        uint64_t va = shm_map_into(sched_current(), &shms[id]);
+        if (a->rsi) *(uint64_t *)a->rsi = va;
+        return 0;
+    }
+    case SYS_comp_register: {
+        task_t *c = sched_current(); compositor_pid = c ? c->pid : 0; return 0;
+    }
+    case SYS_comp_pid:
+        return compositor_pid;
     default:
         kprintf("[sys] non gere : num=%u\n", a->rax);
         return -38;                                     // -ENOSYS

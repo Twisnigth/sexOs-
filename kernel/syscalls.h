@@ -13,6 +13,14 @@
 #define SYS_get_cpl     0x200      // renvoie le CPL courant (debug : 3 en ring 3)
 // (exit/getpid réutilisent les numéros Linux 60/39)
 
+// --- IPC : messagerie + mémoire partagée -------------------------------------
+#define SYS_ipc_send    0x220      // ipc_send(dest_pid, buf, len)
+#define SYS_ipc_recv    0x221      // ipc_recv(buf, maxlen, *sender) -> len ou -1
+#define SYS_shm_create  0x222      // shm_create(size, *out_va) -> shm_id
+#define SYS_shm_map     0x223      // shm_map(id, *out_va) -> 0/-1
+#define SYS_comp_register 0x224    // s'enregistre comme compositeur
+#define SYS_comp_pid    0x225      // pid du compositeur (0 si aucun)
+
 // --- Framebuffer (réservé au compositeur) ------------------------------------
 #define SYS_fb_map      0x210      // mappe le framebuffer ; remplit struct fbinfo
 

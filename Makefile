@@ -112,10 +112,26 @@ DESKTOP_OBJS := $(OBJDIR)/u_crt0.o $(OBJDIR)/u_libos.o $(OBJDIR)/u_desktop_main.
 $(OBJDIR)/desktop.elf: $(DESKTOP_OBJS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(DESKTOP_OBJS)
 
+# --- Compositeur (serveur) + applications, chacun un PROCESSUS séparé ---------
+$(OBJDIR)/compositor.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_compositor.o \
+                          $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_compositor.o \
+	      $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o
+# Modèle commun aux applications clientes (libwin + urt + gfx).
+APPLIBS := $(OBJDIR)/u_crt0.o $(OBJDIR)/u_libwin.o $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o
+$(OBJDIR)/app_clock.elf: $(OBJDIR)/u_app_clock.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_app_clock.o $(APPLIBS)
+$(OBJDIR)/app_hello.elf: $(OBJDIR)/u_app_hello.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_app_hello.o $(APPLIBS)
+$(OBJDIR)/app_crash.elf: $(OBJDIR)/u_app_crash.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_app_crash.o $(APPLIBS)
+
 # user_blobs.asm incbin les binaires : dépendance explicite (prioritaire sur le
 # motif générique ci-dessus).
 $(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
-                            $(OBJDIR)/gfxdemo.elf $(OBJDIR)/wmserver.elf $(OBJDIR)/desktop.elf
+                            $(OBJDIR)/gfxdemo.elf $(OBJDIR)/wmserver.elf $(OBJDIR)/desktop.elf \
+                            $(OBJDIR)/compositor.elf $(OBJDIR)/app_clock.elf \
+                            $(OBJDIR)/app_hello.elf $(OBJDIR)/app_crash.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

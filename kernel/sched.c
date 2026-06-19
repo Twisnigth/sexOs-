@@ -83,9 +83,17 @@ static int finish_task(task_t *t, const char *name, uint64_t pml4,
     t->fs_base    = 0;
     t->brk        = brk;
     t->mmap_base  = 0x100000000000ULL;
+    t->shm_next   = 0xC0000000ULL;     // zone de mappage de la mémoire partagée
+    t->mbox_head  = t->mbox_tail = 0;
     t->exit_code  = 0;
     t->name       = name;
     return t->pid;
+}
+
+task_t *sched_task_by_pid(int pid) {
+    for (int i = 0; i < SCHED_MAX_TASKS; i++)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].pid == pid) return &tasks[i];
+    return NULL;
 }
 
 int sched_new_flat_task(const char *name, const uint8_t *code, size_t len) {

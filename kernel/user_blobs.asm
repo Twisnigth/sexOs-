@@ -17,6 +17,14 @@ global uwm_start
 global uwm_end
 global udesk_start
 global udesk_end
+global ucomp_start
+global ucomp_end
+global uclock_start
+global uclock_end
+global uhello_start
+global uhello_end
+global ucrash_start
+global ucrash_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -30,5 +38,13 @@ uwm_start:          incbin "build/obj/wmserver.elf"
 uwm_end:
 udesk_start:        incbin "build/obj/desktop.elf"
 udesk_end:
+ucomp_start:        incbin "build/obj/compositor.elf"
+ucomp_end:
+uclock_start:       incbin "build/obj/app_clock.elf"
+uclock_end:
+uhello_start:       incbin "build/obj/app_hello.elf"
+uhello_end:
+ucrash_start:       incbin "build/obj/app_crash.elf"
+ucrash_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits
