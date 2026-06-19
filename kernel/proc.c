@@ -65,6 +65,24 @@ typedef struct { int used; int npages; uint64_t pages[SHM_PAGES]; } shm_obj_t;
 static shm_obj_t shms[SHM_MAX];
 static int compositor_pid;
 
+// --- Applications lançables à la demande (SYS_spawn par le menu du compositeur) -
+//  Les binaires ELF sont embarqués par user_blobs.asm. L'ordre correspond aux
+//  constantes APP_* de syscalls.h.
+extern uint8_t uterm_start[],  uterm_end[];
+extern uint8_t ufiles_start[], ufiles_end[];
+extern uint8_t uclock_start[], uclock_end[];
+extern uint8_t umon_start[],   umon_end[];
+extern uint8_t uweb_start[],   uweb_end[];
+extern uint8_t usettings_start[], usettings_end[];
+static const struct { const char *name; uint8_t *start, *end; } g_apps[] = {
+    { "terminal",    uterm_start,     uterm_end     },
+    { "explorateur", ufiles_start,    ufiles_end    },
+    { "horloge",     uclock_start,    uclock_end    },
+    { "moniteur",    umon_start,      umon_end      },
+    { "navigateur",  uweb_start,      uweb_end      },
+    { "parametres",  usettings_start, usettings_end },
+};
+
 // Mappe les pages de 'o' dans l'espace courant à une VA libre de la tâche.
 static uint64_t shm_map_into(task_t *t, shm_obj_t *o) {
     uint64_t aspace = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
@@ -368,6 +386,15 @@ long syscall_dispatch(sysargs_t *a) {
     case SYS_pid_alive: {
         task_t *t = sched_task_by_pid((int)a->rdi);
         return (t && t->state != TASK_UNUSED && t->state != TASK_ZOMBIE) ? 1 : 0;
+    }
+    case SYS_spawn: {
+        // Réservé au compositeur : lui seul lance des applications (sécurité).
+        task_t *me = sched_current();
+        if (!me || me->pid != compositor_pid) return -1;
+        int id = (int)a->rdi;
+        if (id < 0 || id >= (int)(sizeof g_apps / sizeof g_apps[0])) return -1;
+        return sched_new_elf_task(g_apps[id].name, g_apps[id].start,
+                                  (size_t)(g_apps[id].end - g_apps[id].start));
     }
     // --- Système de fichiers (VFS du noyau) par chemin -----------------------
     case SYS_vfs_list: {

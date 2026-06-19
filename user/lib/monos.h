@@ -56,6 +56,7 @@ static inline int  sys_comp_pid(void)      { return (int)_sc0(SYS_comp_pid); }
 static inline void sys_yield(void)         { _sc0(SYS_yield); }
 static inline void sys_ipc_wait(void)      { _sc0(SYS_ipc_wait); }
 static inline int  sys_pid_alive(int pid)  { return (int)_sc1(SYS_pid_alive, pid); }
+static inline int  sys_spawn(int app)      { return (int)_sc1(SYS_spawn, app); }
 
 // --- Système de fichiers / comptes / infos -----------------------------------
 static inline int  sys_vfs_list(const char *p, int i, dirent_t *e) { return (int)_sc3(SYS_vfs_list, (long)p, i, (long)e); }

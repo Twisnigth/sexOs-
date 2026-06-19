@@ -13,7 +13,18 @@
 #define SYS_get_cpl     0x200      // renvoie le CPL courant (debug : 3 en ring 3)
 #define SYS_yield       0x204      // cède le CPU (commutation coopérative)
 #define SYS_pid_alive   0x205      // pid_alive(pid) -> 1 si la tâche vit, 0 sinon
+#define SYS_spawn       0x206      // spawn(app_id) -> pid (>=1) / -1 (réservé compositeur)
 // (exit/getpid réutilisent les numéros Linux 60/39)
+
+// Applications lançables à la demande via SYS_spawn (le menu du compositeur les
+// lance). L'ordre DOIT correspondre à la table g_apps[] du noyau (kernel/proc.c).
+#define APP_TERMINAL    0
+#define APP_FILES       1
+#define APP_CLOCK       2
+#define APP_MONITOR     3
+#define APP_WEB         4
+#define APP_SETTINGS    5
+#define APP_COUNT       6
 
 // --- IPC : messagerie + mémoire partagée -------------------------------------
 #define SYS_ipc_send    0x220      // ipc_send(dest_pid, buf, len)

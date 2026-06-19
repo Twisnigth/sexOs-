@@ -33,6 +33,8 @@ global umon_start
 global umon_end
 global uweb_start
 global uweb_end
+global usettings_start
+global usettings_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -62,5 +64,7 @@ umon_start:         incbin "build/obj/monitor.elf"
 umon_end:
 uweb_start:         incbin "build/obj/web.elf"
 uweb_end:
+usettings_start:    incbin "build/obj/settings.elf"
+usettings_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits

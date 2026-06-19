@@ -13,8 +13,11 @@
 
 void *memset(void *, int, unsigned long);
 
-#define TB    22           // hauteur de la barre de titre
-#define MAXW  16
+void utoa(unsigned long, char *);
+
+#define TB     22          // hauteur de la barre de titre
+#define MAXW   16
+#define DOCK_H 30          // hauteur de la barre des tâches (dock)
 
 typedef struct {
     int used, id, owner, shm;
@@ -32,6 +35,84 @@ static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 }
 static win_t *find(int id) { for (int i = 0; i < MAXW; i++) if (wins[i].used && wins[i].id == id) return &wins[i]; return 0; }
 static int top_index = -1;     // dernière fenêtre cliquée (focus / dessus)
+
+// --- Dock : menu de lancement d'applications ---------------------------------
+//  L'ordre/les identifiants doivent correspondre aux constantes APP_* (noyau).
+static int menu_open;
+static const struct { const char *name; int app; } g_menu[] = {
+    { "Terminal",    APP_TERMINAL },
+    { "Explorateur", APP_FILES    },
+    { "Horloge",     APP_CLOCK    },
+    { "Moniteur",    APP_MONITOR  },
+    { "Navigateur",  APP_WEB      },
+    { "Parametres",  APP_SETTINGS },
+};
+#define NMENU  ((int)(sizeof g_menu / sizeof g_menu[0]))
+#define MENU_W 168
+#define MENU_IH 26
+
+// Traite un clic sur le dock / le menu. Renvoie 1 si le clic est consommé
+// (et ne doit donc pas être routé vers une fenêtre).
+static int handle_dock_click(int cx, int cy) {
+    int dock_y = back.height - DOCK_H;
+    int on_menu_btn = (cy >= dock_y && cx >= 6 && cx < 70);
+    if (menu_open) {
+        int ph = NMENU * MENU_IH + 8, px = 6, py = dock_y - ph;
+        if (cx >= px && cx < px + MENU_W && cy >= py && cy < py + ph) {
+            int idx = (cy - py - 4) / MENU_IH;
+            if (idx >= 0 && idx < NMENU) sys_spawn(g_menu[idx].app);   // lance l'appli
+            menu_open = 0; return 1;
+        }
+        menu_open = 0;                       // clic hors du panneau : referme
+        if (on_menu_btn) return 1;           // (bascule du bouton : ne pas rouvrir)
+        if (cy < dock_y) return 0;           // au-dessus du dock : laisse passer
+        return 1;
+    }
+    if (cy < dock_y) return 0;               // clic dans les fenêtres
+    if (on_menu_btn) { menu_open = 1; return 1; }
+    // Boutons des fenêtres ouvertes : focus + premier plan.
+    int bx = 80;
+    for (int i = 0; i < MAXW; i++) {
+        if (!wins[i].used) continue;
+        if (cx >= bx && cx < bx + 140) { top_index = i; return 1; }
+        bx += 146;
+    }
+    return 1;                                // zone vide de la barre : consommé
+}
+
+// Dessine le dock (barre des tâches), ses boutons et le menu déroulant.
+static void draw_dock(void) {
+    int dock_y = back.height - DOCK_H;
+    canvas_fill_rect(&back, 0, dock_y, back.width, DOCK_H, rgb(0x18, 0x1b, 0x26));
+    canvas_fill_rect(&back, 0, dock_y, back.width, 1, rgb(0x2d, 0x34, 0x46));
+    // Bouton Menu.
+    canvas_fill_rect(&back, 6, dock_y + 5, 64, DOCK_H - 10, rgb(0x2d, 0x6c, 0xdf));
+    canvas_draw_string(&back, "Menu", 22, dock_y + 9, rgb(255, 255, 255), 1);
+    // Un bouton par fenêtre ouverte.
+    int bx = 80;
+    for (int i = 0; i < MAXW; i++) {
+        if (!wins[i].used) continue;
+        if (bx + 140 > (int)back.width - 90) break;
+        uint32_t col = (i == top_index) ? rgb(0x3a, 0x42, 0x58) : rgb(0x24, 0x28, 0x34);
+        canvas_fill_rect(&back, bx, dock_y + 5, 140, DOCK_H - 10, col);
+        canvas_draw_string(&back, wins[i].title, bx + 8, dock_y + 9, rgb(0xe6, 0xec, 0xf2), 1);
+        bx += 146;
+    }
+    // Horloge (uptime) à droite.
+    char b[24], num[16]; utoa(sys_time_ms() / 1000, num);
+    int i = 0; const char *p = "up "; while (p[i]) { b[i] = p[i]; i++; }
+    int j = 0; while (num[j]) b[i++] = num[j++]; b[i++] = 's'; b[i] = 0;
+    canvas_draw_string(&back, b, back.width - 84, dock_y + 9, rgb(0x9a, 0xa6, 0xb4), 1);
+    // Menu déroulant.
+    if (menu_open) {
+        int ph = NMENU * MENU_IH + 8, px = 6, py = dock_y - ph;
+        canvas_fill_rect(&back, px, py, MENU_W, ph, rgb(0x20, 0x24, 0x30));
+        canvas_draw_rect(&back, px, py, MENU_W, ph, rgb(0x3a, 0x42, 0x58));
+        for (int k = 0; k < NMENU; k++)
+            canvas_draw_string(&back, g_menu[k].name, px + 12, py + 8 + k * MENU_IH,
+                               rgb(0xff, 0xff, 0xff), 1);
+    }
+}
 
 // --- Création d'une fenêtre demandée par une application ---------------------
 static void handle_create(int owner, wmsg_t *req) {
@@ -105,6 +186,7 @@ int main(void) {
                 int released = !(buttons & MOUSE_LEFT) && (prevb & MOUSE_LEFT);
                 prevb = buttons;
                 if (pressed) {
+                    if (handle_dock_click(cx, cy)) { continue; }   // clic capté par le dock
                     for (int i = MAXW - 1; i >= 0; i--) {
                         // parcourt dans l'ordre de la pile (le focus en dernier)
                         int idx = (top_index >= 0) ? (top_index - i + 2 * MAXW) % MAXW : i;
@@ -149,10 +231,11 @@ int main(void) {
 
         // (3) Composition.
         canvas_fill(&back, rgb(0x16, 0x18, 0x28));
-        canvas_draw_string(&back, "MonOS -- compositeur ring 3 : chaque fenetre est un PROCESSUS separe",
+        canvas_draw_string(&back, "MonOS -- bureau ring 3 : cliquez sur \"Menu\" (en bas) pour lancer une application",
                            12, 8, rgb(0x9a, 0xc8, 0xff), 1);
         for (int i = 0; i < MAXW; i++) if (wins[i].used && i != top_index) draw_window(&wins[i], 0);
         if (top_index >= 0 && wins[top_index].used) draw_window(&wins[top_index], 1);
+        draw_dock();                                                 // barre des tâches + menu
         canvas_fill_rect(&back, cx, cy, 8, 8, rgb(255, 255, 255));   // curseur
         canvas_blit(&screen, &back, 0, 0);
         sys_yield();                 // commutation coopérative (pas de busy-poll)

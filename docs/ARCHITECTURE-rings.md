@@ -107,6 +107,17 @@ Le bureau peut tourner en **plusieurs processus ring 3 distincts** reliés par I
 - **Récupération des fenêtres orphelines** : le compositeur interroge
   `sys_pid_alive(owner)` ; quand un processus client meurt (crash tué, ou sortie),
   sa fenêtre est retirée de la composition (elle ne reste plus affichée).
+- **Dock + lanceur d'applications** : **aucune application n'est démarrée au
+  boot** — seul le compositeur (le bureau) et la tâche réseau tournent. Le
+  compositeur dessine une **barre des tâches** : un bouton **Menu** (Terminal,
+  Explorateur, Horloge, Moniteur, Navigateur, Paramètres), un bouton par fenêtre
+  ouverte (focus/premier plan), et l'uptime. Le menu lance l'appli **à la
+  demande** via le nouvel appel système **`SYS_spawn(app_id)`** : le noyau charge
+  l'ELF embarqué correspondant et crée un **nouveau processus ring 3** (réservé au
+  compositeur ; les ELF sont décrits par la table `g_apps[]` de `proc.c`).
+  Chaque appli reste isolée — un crash est contenu par le noyau (kill-on-fault).
+  L'application **Paramètres** (`user/settings.c`) a été reportée en processus
+  ring 3 (système/utilisateur/réseau via `sys_sysinfo`/`sys_whoami`/`sys_net_info`).
 
 Vérifié en QEMU (`docs/ring3-multiproc*.png`) :
 - 3 fenêtres provenant de 3 **processus séparés**, dessinées via mémoire

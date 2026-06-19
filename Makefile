@@ -132,6 +132,8 @@ $(OBJDIR)/files.elf: $(OBJDIR)/u_files.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_files.o $(APPLIBS)
 $(OBJDIR)/monitor.elf: $(OBJDIR)/u_monitor.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_monitor.o $(APPLIBS)
+$(OBJDIR)/settings.elf: $(OBJDIR)/u_settings.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_settings.o $(APPLIBS)
 # Monocypher recompilé pour l'espace utilisateur (X25519, ChaCha20, Poly1305).
 $(OBJDIR)/u_monocypher.o: $(MCDIR)/monocypher.c
 	@mkdir -p $(OBJDIR)
@@ -150,7 +152,8 @@ $(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
                             $(OBJDIR)/compositor.elf $(OBJDIR)/app_clock.elf \
                             $(OBJDIR)/app_hello.elf $(OBJDIR)/app_crash.elf \
                             $(OBJDIR)/term.elf $(OBJDIR)/files.elf \
-                            $(OBJDIR)/monitor.elf $(OBJDIR)/web.elf
+                            $(OBJDIR)/monitor.elf $(OBJDIR)/web.elf \
+                            $(OBJDIR)/settings.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

@@ -18,8 +18,12 @@ en cas de souris inerte, c'est que l'hyperviseur a présenté un pointeur USB.
 ## Ce que contient cette image
 **Bureau multi-processus en ring 3** : le compositeur et chaque application sont
 des **processus ring 3 isolés** reliés par IPC (messagerie + mémoire partagée).
-Au démarrage : compositeur, **terminal**, **explorateur de fichiers**,
-**moniteur d'activité (style btop)**, **navigateur web** et horloge. Un crash
+**Aucune application n'est lancée au démarrage** : le bureau s'ouvre vide, avec
+une **barre des tâches (dock)** en bas. Cliquez sur **Menu** pour lancer une
+application **à la demande** — **Terminal**, **Explorateur de fichiers**,
+**Horloge**, **Moniteur d'activité (style btop)**, **Navigateur web** ou
+**Paramètres**. Chaque lancement crée un nouveau **processus ring 3** distinct
+(appel système `spawn`) ; le dock affiche un bouton par fenêtre ouverte. Un crash
 d'application est contenu par le noyau (la tâche fautive est tuée, sa fenêtre
 récupérée, le reste du système continue).
 
