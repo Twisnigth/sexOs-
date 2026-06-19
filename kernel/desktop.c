@@ -234,7 +234,7 @@ static bool login_screen(void) {
             }
         }
         sshd_poll();              // sert une éventuelle connexion SSH entrante
-        if (!got) __asm__ volatile ("hlt");
+        if (!got) __asm__ volatile ("pause");   // ring 3 : pas de hlt (privilégié)
     }
 }
 
@@ -245,7 +245,7 @@ void desktop_run(void) {
     back.height = fb_height();
     back.pitch  = fb_width() * 4;
     back.pixels = (uint32_t *)kmalloc((size_t)back.width * back.height * 4);
-    if (!back.pixels) { kprintf("[desktop] back-buffer impossible !\n"); for(;;) hlt(); }
+    if (!back.pixels) { kprintf("[desktop] back-buffer impossible !\n"); for(;;) { } }
 
     wm_init();
     ps2_mouse_pos(&cursor_x, &cursor_y);
@@ -295,7 +295,7 @@ void desktop_run(void) {
 
             sshd_poll();          // sert une éventuelle connexion SSH entrante
             if (changed) present();
-            else __asm__ volatile ("hlt");
+            else __asm__ volatile ("pause");   // ring 3 : pas de hlt (privilégié)
         }
 
         // Déconnexion : ferme toutes les fenêtres.

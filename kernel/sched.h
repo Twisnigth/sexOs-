@@ -40,6 +40,11 @@ int  sched_new_elf_task(const char *name, const uint8_t *elf, size_t len);
 // quand il n'y a plus AUCUNE tâche prête (mode démo de la Phase 1).
 void sched_run_until_idle(void);
 
+// Démarre l'ordonnanceur pour de bon : ne revient JAMAIS. S'il n'y a pas de
+// tâche prête, exécute une tâche idle noyau (hlt). C'est le modèle final :
+// kmain crée la tâche init (le bureau) puis appelle ceci.
+void sched_start(void);
+
 // Appelés depuis le répartiteur d'interruptions (idt.c).
 registers_t *sched_on_timer(registers_t *r);     // préemption PIT
 registers_t *sched_on_fault(registers_t *r);     // faute ring 3 -> tue la tâche

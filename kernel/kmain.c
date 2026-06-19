@@ -205,40 +205,25 @@ void kmain(void) {
         kprintf("\n--- fin demo ordonnanceur (noyau intact) ---\n");
     }
 
-    // --- Démo graphique RING 3 (refactor Phase 2) ----------------------------
-    //  Un programme ELF ring 3 mappe le framebuffer (syscall), y dessine et lit
-    //  la souris/clavier via syscalls. Prouve le chemin GUI-en-ring-3.
-    {
-        extern uint8_t ugfx_start[], ugfx_end[];
-        kprintf("\n--- demo graphique ring 3 (Phase 2) ---\n");
-        sched_new_elf_task("gfx", ugfx_start, (size_t)(ugfx_end - ugfx_start));
-        sched_run_until_idle();
-        kprintf("--- fin demo graphique ring 3 ---\n");
-    }
-
-    // --- Compositeur / WM en RING 3 (refactor Phase 3) -----------------------
-    //  Le bureau (compositeur + fenêtres déplaçables/fermables) tourne en CPL 3,
-    //  possède le framebuffer et le flux d'entrées via syscalls. Réutilise le
-    //  vrai gfx.c recompilé pour l'espace utilisateur.
-    {
-        extern uint8_t uwm_start[], uwm_end[];
-        kprintf("\n--- compositeur ring 3 (Phase 3) ---\n");
-        sched_new_elf_task("wm", uwm_start, (size_t)(uwm_end - uwm_start));
-        sched_run_until_idle();
-        kprintf("--- fin compositeur ring 3 ---\n");
-    }
-
     // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
     net_init();
     if (nic_present()) { net_dhcp(); ssh_server_init(); }
 
-    // --- Système de fichiers + comptes utilisateurs --------------------------
+    // --- VFS + comptes côté NOYAU (pour sshd/pacman) -------------------------
     vfs_init();
     users_init();
 
-    // --- Phases 4-9 : bureau graphique (login, fenetres, applications) -------
-    kprintf("[boot] lancement du bureau\n");
-    desktop_run();
+    // --- Le BUREAU démarre en RING 3 (refactor Phase 3 : portage complet) ----
+    //  Le compositeur, le gestionnaire de fenêtres et TOUTES les applications
+    //  (terminal, explorateur, paramètres, éditeur, à propos) tournent à CPL 3.
+    //  kmain ne contient plus aucune logique applicative : il crée la tâche du
+    //  bureau puis cède la main à l'ordonnanceur (idle hlt si le bureau meurt).
+    {
+        extern uint8_t udesk_start[], udesk_end[];
+        kprintf("[boot] lancement du bureau en ring 3\n");
+        sched_new_elf_task("bureau", udesk_start, (size_t)(udesk_end - udesk_start));
+    }
+    sched_start();                          // ne revient jamais
 
-    for (;;) hlt();
+    for (;;) hlt();                          // (inatteignable)
 }

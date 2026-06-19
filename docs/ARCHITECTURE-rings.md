@@ -37,11 +37,22 @@ le mapping MMIO en espace utilisateur et la redirection des IRQ via IPC :
 |---------|--------|
 | Tâches `A` / `B` concurrentes | entrelacement à l'écran série (commutation de contexte) |
 | Tâche `crash` (`cli`) | `#GP cs=1b` → **tuée**, le noyau survit (sépare réellement les privilèges) |
-| `gfxdemo` | `cpl=3` ; dégradé plein écran **dessiné depuis le ring 3** + souris (`docs/ring3-gfx.png`) |
-| **Compositeur / WM** (`wmserver`) | bureau à CPL 3 : fenêtres déplaçables/fermables, possède framebuffer + entrées (`docs/ring3-desktop.png`) |
+| **Le BUREAU COMPLET** | login, compositeur, WM, **terminal + explorateur + paramètres + éditeur + à propos** tournent à CPL 3 ; `info registers` montre `CPL=3, CS=0x1b` pendant que le bureau est actif (`docs/ring3-desktop-apps.png`) |
 
-Preuves disponibles : appel système `SYS_get_cpl` (renvoie 3), faute sur `cli`
-depuis le ring 3 (cs=0x1b, RPL 3), et `info registers` du moniteur QEMU.
+Preuves disponibles : `info registers` du moniteur QEMU (`CPL=3`, `CS=0x1b`,
+`RIP` dans le code du bureau à 0x40xxxx), appel système `SYS_get_cpl` (renvoie 3),
+faute sur `cli` depuis le ring 3.
+
+## Comment le bureau tourne en ring 3
+
+`kmain` ne contient plus AUCUNE logique applicative : après l'init matériel, il
+crée la tâche `bureau` (un ELF ring 3) puis appelle `sched_start()` qui ne revient
+jamais (idle `hlt` si le bureau meurt). Le bureau est un **seul processus ring 3**
+construit en compilant pour l'espace utilisateur les modules portables du noyau
+(`gfx.c`, `klib.c`, `vfs.c`, `users.c`) + `desktop.c`/`wm.c`/`app_*.c`, liés à une
+**libOS** (`user/lib/libos.c`) qui réimplémente via syscalls les services noyau
+(framebuffer, entrées, tas, horloge, infos système). Le VFS et les comptes vivent
+donc DANS le processus bureau ; le noyau garde les siens pour sshd/pacman.
 
 ## Appels système
 
@@ -51,19 +62,27 @@ arch_prctl, clock_gettime, uname, exit`…
 Natifs MonOS (≥ 0x200, cf. `kernel/syscalls.h`) : `get_cpl (0x200)`,
 `fb_map (0x210)`, `input_poll (0x212)`, `time_ms (0x250)`.
 
+## Fait
+
+- ✅ **`kmain` ne fait plus de travail applicatif** : il crée la tâche bureau puis
+  cède la main à l'ordonnanceur (`sched_start`). Plus de `desktop_run` en ring 0.
+- ✅ **Le bureau entier (compositeur + WM + 5 applications) tourne en ring 3.**
+
 ## Reste à faire (honnêteté sur le périmètre)
 
-- **Portage des 5 applications historiques en ring 3** (terminal, explorateur,
-  paramètres, éditeur, « à propos »). Elles détiennent aujourd'hui des pointeurs
-  noyau `vfs_node_t*` et appellent directement VFS/comptes. Il faut d'abord une
-  **API VFS par handles** (`open/read/write/readdir/stat/...`) et des syscalls
-  comptes, puis réécrire leur logique fichiers. C'est le gros du travail restant.
-- **IPC compositeur ↔ applications** (mémoire partagée des buffers de fenêtre +
-  messages d'événements) pour faire de chaque application un **processus séparé**.
-- **Bascule définitive** : faire de `init` (PID 1) le seul point de départ en
-  ring 3, et retirer `desktop_run` (ring 0) de `kmain`. Aujourd'hui le bureau
-  historique ring 0 tourne encore derrière les démos ring 3.
-- État `brk`/`mmap_base` encore partiellement global (par défaut mono-processus).
+- **IPC compositeur ↔ applications** : aujourd'hui le bureau est UN seul processus
+  ring 3 (compositeur + applis dans le même espace). Pour faire de chaque appli un
+  **processus isolé** (un crash d'appli ne touche pas le compositeur), il faut une
+  primitive IPC (mémoire partagée des buffers de fenêtre + messages d'événements).
+- **Commandes réseau / SSH / pacman / busybox du terminal** : indisponibles dans
+  le bureau ring 3 (elles dépendent de pilotes noyau) ; elles nécessiteraient des
+  syscalls réseau dédiés. Stubs pour l'instant.
+- **Filesystem partagé** : le bureau a son propre VFS en mémoire (distinct de celui
+  du noyau utilisé par sshd/pacman). Les unifier demanderait une API VFS par
+  syscalls.
+- **sshd** n'est plus interrogé pendant que le bureau tourne (serait à confier à
+  une tâche noyau dédiée).
+- État `brk`/`mmap_base` encore partiellement global.
 
 ## Fichiers clés
 

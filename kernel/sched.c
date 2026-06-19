@@ -38,6 +38,7 @@ static int  next_pid = 1;
 static int  rr_last;                 // dernier indice servi (round-robin)
 static int  active;                  // ordonnanceur en cours d'exécution
 static uint64_t kernel_cr3;
+static task_t *idle_task;            // tâche noyau de repli (hlt)
 
 int     sched_active(void)  { return active; }
 task_t *sched_current(void) { return current; }
@@ -117,12 +118,14 @@ int sched_new_elf_task(const char *name, const uint8_t *elf, size_t len) {
     return finish_task(t, name, pml4, entry, brk_end);
 }
 
-// --- Sélection round-robin ---------------------------------------------------
+// --- Sélection round-robin (l'idle n'est choisi qu'en dernier recours) -------
 static task_t *pick_next(void) {
     for (int i = 0; i < SCHED_MAX_TASKS; i++) {
         int idx = (rr_last + 1 + i) % SCHED_MAX_TASKS;
-        if (tasks[idx].state == TASK_READY) { rr_last = idx; return &tasks[idx]; }
+        task_t *t = &tasks[idx];
+        if (t->state == TASK_READY && t != idle_task) { rr_last = idx; return t; }
     }
+    if (idle_task && idle_task->state == TASK_READY) return idle_task;
     return NULL;
 }
 
@@ -190,4 +193,34 @@ void sched_run_until_idle(void) {
     sched_save_and_run((registers_t *)first->ctx);  // revient via back_to_kernel
     // On est revenu en abandonnant un contexte d'interruption/syscall : IF=0.
     __asm__ volatile ("sti");
+}
+
+// --- Tâche idle noyau (ring 0) -----------------------------------------------
+static uint8_t idle_stack[8192] __attribute__((aligned(16)));
+static void idle_fn(void) { for (;;) __asm__ volatile ("hlt"); }
+
+static void create_idle(void) {
+    task_t *t = alloc_slot();
+    uint64_t ktop = ((uint64_t)idle_stack + sizeof(idle_stack)) & ~0xFULL;
+    registers_t *f = (registers_t *)(ktop - sizeof(registers_t));
+    memset(f, 0, sizeof(*f));
+    f->rip = (uint64_t)idle_fn;
+    f->cs = 0x08;                       // code noyau
+    f->rflags = 0x202;                  // IF=1
+    f->rsp = ktop - 256;
+    f->ss = 0x10;                       // données noyau
+    t->pid = 0; t->state = TASK_READY; t->pml4 = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
+    t->kstack_top = ktop; t->ctx = (uint64_t)f; t->fs_base = 0; t->name = "idle";
+    idle_task = t;
+}
+
+// Démarre l'ordonnanceur pour de bon (ne revient jamais).
+void sched_start(void) {
+    kernel_cr3 = vmm_current_cr3();
+    if (!idle_task) create_idle();
+    rr_last = SCHED_MAX_TASKS - 1;
+    active = 1;
+    task_t *first = pick_next();
+    install(first);
+    sched_resume((registers_t *)first->ctx);   // ne revient jamais
 }

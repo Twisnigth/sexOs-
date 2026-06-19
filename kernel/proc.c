@@ -17,6 +17,9 @@
 #include "syscalls.h"
 #include "framebuffer.h"
 #include "input.h"
+#include "rtc.h"
+#include "pci.h"
+#include "io.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -191,6 +194,24 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_time_ms:
         return (long)pit_ms();
+    case SYS_rtc_now: {
+        rtc_time_t *t = (rtc_time_t *)a->rdi;
+        if (t) rtc_now(t);
+        return 0;
+    }
+    case SYS_sysinfo: {
+        sysinfo_t *si = (sysinfo_t *)a->rdi;
+        if (si) {
+            si->mem_total_mb = (uint32_t)(pmm_total_bytes() / (1024 * 1024));
+            si->mem_used_mb  = (uint32_t)(pmm_used_bytes() / (1024 * 1024));
+            si->uptime_s     = (uint32_t)(pit_ms() / 1000);
+            si->pci_count    = (uint32_t)pci_device_count();
+        }
+        return 0;
+    }
+    case SYS_reboot:
+        outb(0x64, 0xFE);
+        return 0;
     default:
         kprintf("[sys] non gere : num=%u\n", a->rax);
         return -38;                                     // -ENOSYS

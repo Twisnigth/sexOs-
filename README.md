@@ -101,18 +101,23 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
   au démarrage.
 - Testé en QEMU : `bb echo`, `bb uname`, `bb ls`, etc. s'exécutent en **ring 3**.
 
-**Refactor du modèle de privilèges** (ordonnanceur + GUI en ring 3)
-- ✅ **Ordonnanceur multi-processus préemptif** : plusieurs tâches ring 3
-  concurrentes, commutation de contexte (PIT), pile noyau (`rsp0`) **par tâche**.
+**Refactor du modèle de privilèges — BUREAU COMPLET EN RING 3**
+- ✅ **Ordonnanceur multi-processus préemptif** : tâches ring 3 concurrentes,
+  commutation de contexte (PIT), pile noyau (`rsp0`) **par tâche**, tâche idle.
 - ✅ **kill-on-fault** : une tâche ring 3 qui exécute une instruction privilégiée
   (`cli`) ou déréférence un pointeur invalide est **tuée par le noyau** ; le
   système **survit** (remplace le `panic` global). Vraie séparation matérielle.
-- ✅ **Compositeur / WM en ring 3 (CPL 3)** : possède le framebuffer (`sys_fb_map`)
-  et les entrées (`sys_input_poll`), fenêtres déplaçables/fermables — réutilise
-  le vrai `gfx.c`. Voir `docs/ring3-desktop.png` et `docs/ring3-gfx.png`.
-- ⚠️ **Partiel** : le portage des 5 applications historiques (terminal,
-  explorateur…) en ring 3 n'est pas fait (nécessite une API VFS par handles +
-  IPC). Le bureau historique tourne encore en ring 0. Détails et frontière
+- ✅ **Tout le bureau tourne en ring 3 (CPL 3)** : `kmain` ne fait plus de travail
+  applicatif — il crée la tâche `bureau` puis lance l'ordonnanceur. Le compositeur,
+  le gestionnaire de fenêtres, **et les 5 applications** (terminal, explorateur,
+  paramètres, éditeur, à propos) s'exécutent à CPL 3, via des appels système
+  (framebuffer, entrées, horloge, infos système). Vérifié : `info registers`
+  montre `CPL=3, CS=0x1b` quand le bureau est actif. Voir
+  `docs/ring3-desktop-apps.png`.
+- ⚠️ **Limites** : le bureau est un **seul** processus ring 3 (compositeur + applis
+  ensemble — l'isolation par processus séparés via IPC reste à faire) ; le terminal
+  perd ses commandes réseau/SSH/pacman/busybox en ring 3 (dépendent de pilotes
+  noyau) ; le VFS du bureau est distinct de celui du noyau. Détails et frontière
   ring 0/ring 3 dans [`docs/ARCHITECTURE-rings.md`](docs/ARCHITECTURE-rings.md).
 
 **Gestionnaire de paquets** (Phase 5) — style `pacman`
@@ -182,11 +187,10 @@ les éléments suivants **ne sont pas faits**. Ils sont signalés sans détour :
 - ⚠️ **SSH** : un seul algorithme par catégorie (curve25519-sha256 /
   ssh-ed25519 / chacha20-poly1305) ; auth par mot de passe (pas encore par clé).
 - ❌ **Multi-cœurs (SMP)** : non implémenté (mono-cœur).
-- ✅ **Ring 3 / ordonnanceur / kill-on-fault** : plusieurs processus ring 3
-  concurrents, préemption, et un compositeur/WM tournant à CPL 3 (voir le refactor
-  du modèle de privilèges plus haut). ⚠️ Le portage des **5 applications**
-  historiques (terminal, explorateur…) en ring 3 n'est **pas encore fait** : elles
-  tournent toujours en ring 0 (séparation pour l'instant **logique**). Frontière
+- ✅ **Ring 3 / ordonnanceur / kill-on-fault** : le **bureau entier** (compositeur,
+  WM et les 5 applications) tourne désormais à **CPL 3** (voir le refactor du modèle
+  de privilèges plus haut). ⚠️ Reste : isoler chaque application dans un **processus
+  séparé** (IPC) — actuellement elles partagent un seul processus ring 3. Frontière
   détaillée dans [`docs/ARCHITECTURE-rings.md`](docs/ARCHITECTURE-rings.md).
 - ⚠️ **Compatibilité Linux** : ABI partielle (sous-ensemble d'appels système),
   binaires **statiques** uniquement (pas de chargeur dynamique), pas de threads

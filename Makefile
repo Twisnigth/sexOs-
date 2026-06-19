@@ -36,7 +36,12 @@ OVMF_VARS_SRC := /usr/share/OVMF/OVMF_VARS_4M.fd
 OVMF_VARS := $(BUILD)/OVMF_VARS.fd
 
 # ---- Sources ----------------------------------------------------------------
-CSRC := $(wildcard $(KDIR)/*.c)
+#  Le bureau (compositeur, WM, applications) est désormais compilé en RING 3
+#  (cf. user/) : on l'exclut du noyau.
+DESKTOP_SRC := $(KDIR)/desktop.c $(KDIR)/wm.c $(KDIR)/app_terminal.c \
+               $(KDIR)/app_files.c $(KDIR)/app_settings.c $(KDIR)/app_editor.c \
+               $(KDIR)/app_about.c
+CSRC := $(filter-out $(DESKTOP_SRC), $(wildcard $(KDIR)/*.c))
 ASRC := $(wildcard $(KDIR)/*.asm)
 MCDIR := third_party/monocypher
 MCSRC := $(MCDIR)/monocypher.c $(MCDIR)/monocypher-ed25519.c
@@ -83,19 +88,34 @@ $(OBJDIR)/u_crt0.o: user/lib/crt0.asm
 $(OBJDIR)/u_%.o: user/%.c
 	@mkdir -p $(OBJDIR)
 	$(CC) $(UCFLAGS) -c $< -o $@
-# gfx.c du noyau recompilé pour l'espace utilisateur (code de dessin pur).
-$(OBJDIR)/u_gfx.o: $(KDIR)/gfx.c
+$(OBJDIR)/u_%.o: user/lib/%.c
 	@mkdir -p $(OBJDIR)
 	$(CC) $(UCFLAGS) -c $< -o $@
+# Modules du noyau recompilés pour l'espace utilisateur (gfx, klib, vfs, users,
+# et le bureau lui-même) : préfixe uk_.
+$(OBJDIR)/uk_%.o: $(KDIR)/%.c
+	@mkdir -p $(OBJDIR)
+	$(CC) $(UCFLAGS) -c $< -o $@
+
 $(OBJDIR)/gfxdemo.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_gfxdemo.o user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_gfxdemo.o
-$(OBJDIR)/wmserver.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_wmserver.o $(OBJDIR)/u_gfx.o user/user.ld
-	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_wmserver.o $(OBJDIR)/u_gfx.o
+$(OBJDIR)/wmserver.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_wmserver.o $(OBJDIR)/uk_gfx.o user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_wmserver.o $(OBJDIR)/uk_gfx.o
+
+# Le BUREAU complet en ring 3 : runtime + modules portables + desktop/wm/apps.
+DESKTOP_OBJS := $(OBJDIR)/u_crt0.o $(OBJDIR)/u_libos.o $(OBJDIR)/u_desktop_main.o \
+                $(OBJDIR)/uk_gfx.o $(OBJDIR)/uk_klib.o $(OBJDIR)/uk_vfs.o \
+                $(OBJDIR)/uk_users.o $(OBJDIR)/uk_desktop.o $(OBJDIR)/uk_wm.o \
+                $(OBJDIR)/uk_app_terminal.o $(OBJDIR)/uk_app_files.o \
+                $(OBJDIR)/uk_app_settings.o $(OBJDIR)/uk_app_editor.o \
+                $(OBJDIR)/uk_app_about.o
+$(OBJDIR)/desktop.elf: $(DESKTOP_OBJS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(DESKTOP_OBJS)
 
 # user_blobs.asm incbin les binaires : dépendance explicite (prioritaire sur le
 # motif générique ci-dessus).
 $(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
-                            $(OBJDIR)/gfxdemo.elf $(OBJDIR)/wmserver.elf
+                            $(OBJDIR)/gfxdemo.elf $(OBJDIR)/wmserver.elf $(OBJDIR)/desktop.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

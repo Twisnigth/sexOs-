@@ -20,6 +20,7 @@
 #include "boot.h"
 #include "pkg.h"
 #include "io.h"
+#include "monos.h"        // ring 3 : sys_reboot (le bureau tourne en CPL 3)
 
 #define TCOLS 80
 #define TROWS 25
@@ -529,7 +530,7 @@ static void term_run(term_t *t, char *line) {
     else if (strcmp(cmd, "bb") == 0 || strcmp(cmd, "busybox") == 0) cmd_bb(t, arg);
     else if (strcmp(cmd, "pacman") == 0) cmd_pacman(t, arg);
     else if (strcmp(cmd, "about") == 0) cmd_about(t);
-    else if (strcmp(cmd, "reboot") == 0) { term_print(t, "redemarrage...\n"); outb(0x64, 0xFE); }
+    else if (strcmp(cmd, "reboot") == 0) { term_print(t, "redemarrage...\n"); sys_reboot(); }
     else { term_print(t, cmd); term_print(t, ": commande inconnue\n"); }
 }
 

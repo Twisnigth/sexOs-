@@ -21,11 +21,21 @@
 
 // --- Horloges ----------------------------------------------------------------
 #define SYS_time_ms     0x250      // millisecondes depuis le démarrage
+#define SYS_rtc_now     0x251      // remplit rtc_time_t (date/heure CMOS)
+#define SYS_sysinfo     0x252      // remplit sysinfo_t (mémoire, uptime, PCI)
+
+// --- Système -----------------------------------------------------------------
+#define SYS_reboot      0x260      // redémarre la machine
 
 // Informations du framebuffer renvoyées par SYS_fb_map.
 typedef struct {
     uint64_t addr;                 // adresse virtuelle (espace appelant)
     uint32_t width, height, pitch; // dimensions, octets par ligne
 } fbinfo_t;
+
+// Informations système renvoyées par SYS_sysinfo (pour l'appli Paramètres).
+typedef struct {
+    uint32_t mem_total_mb, mem_used_mb, uptime_s, pci_count;
+} sysinfo_t;
 
 #endif
