@@ -95,14 +95,18 @@ système). Aucune application ne bloque le système ; aucune ne sonde le NIC.
 l'utilise automatiquement pour les URL `https://` (port 443 par défaut).
 
 - **Suites** : `TLS_AES_128_GCM_SHA256` **et** `TLS_CHACHA20_POLY1305_SHA256`,
-  échange de clés **X25519**. Couvre l'immense majorité des serveurs (AES-128-GCM
-  est obligatoire en TLS 1.3). AES-128 + GCM (`aesgcm.c`) testé contre les
-  vecteurs NIST.
+  échange de clés **X25519 et secp256r1 (P-256)**. Le ClientHello propose les deux
+  groupes (deux `key_share`) et le serveur choisit ; cela couvre l'immense
+  majorité des serveurs (AES-128-GCM est obligatoire en TLS 1.3, et certains
+  serveurs comme microsoft.com n'acceptent que P-256). AES-128 + GCM (`aesgcm.c`)
+  testé contre les vecteurs NIST.
 - **Crypto réutilisée** : Monocypher (X25519, ChaCha20-IETF, Poly1305) recompilé
-  pour le ring 3, + le SHA-256 du noyau. AEAD RFC 8439 et **HKDF** (HMAC-SHA256,
-  `HKDF-Expand-Label`, key schedule complet) écrits dans `tls.c`. Aléa fourni par
-  un nouvel appel système `SYS_random` (CSPRNG du noyau).
-- **Handshake 1-RTT** : ClientHello (key_share X25519, SNI, signature_algorithms),
+  pour le ring 3, + le SHA-256 du noyau. L'ECDHE P-256 réutilise l'arithmétique
+  de courbe d'`ecdsa.c` (`ec_p256_pub`/`ec_p256_ecdh`, testées contre OpenSSL).
+  AEAD RFC 8439 et **HKDF** (HMAC-SHA256, `HKDF-Expand-Label`, key schedule
+  complet) écrits dans `tls.c`. Aléa fourni par un nouvel appel système
+  `SYS_random` (CSPRNG du noyau).
+- **Handshake 1-RTT** : ClientHello (key_share X25519 + secp256r1, SNI, signature_algorithms),
   ServerHello, dérivation du secret partagé, déchiffrement AEAD du *flight*
   chiffré (EncryptedExtensions, Certificate, CertificateVerify, Finished),
   **vérification du Finished serveur**, envoi du Finished client, bascule sur les

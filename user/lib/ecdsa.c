@@ -168,3 +168,29 @@ int ecdsa_p384_verify(const uint8_t Qx[48], const uint8_t Qy[48],
                       const uint8_t *sig_der, int sig_len, const uint8_t hash[48]) {
     init(); return verify(&C384, Qx, Qy, sig_der, sig_len, hash, 48);
 }
+
+// --- ECDHE P-256 -------------------------------------------------------------
+static void j_affine(const jpt *P, uint8_t x[32], uint8_t y[32]) {
+    bn_t zi, zi2, zi3, X, Y;
+    f_inv(&zi, &P->Z); f_mul(&zi2, &zi, &zi); f_mul(&zi3, &zi2, &zi);
+    f_mul(&X, &P->X, &zi2); f_mul(&Y, &P->Y, &zi3);
+    bn_to_be(&X, x, 32); bn_to_be(&Y, y, 32);
+}
+
+void ec_p256_pub(const uint8_t priv[32], uint8_t pub[65]) {
+    init(); CV = &C256;
+    jpt G, R; G.X = C256.GX; G.Y = C256.GY; bn_zero(&G.Z); G.Z.v[0] = 1;
+    j_mul(&R, priv, 32, &G);
+    pub[0] = 4; j_affine(&R, pub + 1, pub + 33);
+}
+
+int ec_p256_ecdh(const uint8_t priv[32], const uint8_t peer[65], uint8_t out[32]) {
+    init(); CV = &C256;
+    if (peer[0] != 4) return -1;
+    jpt Q, R; bn_from_be(&Q.X, peer + 1, 32); bn_from_be(&Q.Y, peer + 33, 32);
+    bn_zero(&Q.Z); Q.Z.v[0] = 1;
+    j_mul(&R, priv, 32, &Q);
+    if (is_zero(&R.Z)) return -1;
+    uint8_t y[32]; j_affine(&R, out, y);
+    return 0;
+}

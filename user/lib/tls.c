@@ -185,7 +185,7 @@ static int is_name(const char *h) {
 }
 
 static int build_client_hello(uint8_t *o, const uint8_t random[32], const uint8_t sid[32],
-                              const uint8_t cpub[32], const char *host) {
+                              const uint8_t cpub[32], const uint8_t cpub_p256[65], const char *host) {
     int p = 0;
     o[p++] = HS_CLIENT_HELLO; int lenpos = p; p += 3;       // longueur (backpatch)
     o[p++] = 0x03; o[p++] = 0x03;                           // legacy_version TLS1.2
@@ -197,15 +197,17 @@ static int build_client_hello(uint8_t *o, const uint8_t random[32], const uint8_
     int extpos = p; p += 2;                                 // longueur des extensions
     // supported_versions (0x002b) -> TLS 1.3
     o[p++]=0x00; o[p++]=0x2b; o[p++]=0x00; o[p++]=0x03; o[p++]=0x02; o[p++]=0x03; o[p++]=0x04;
-    // supported_groups (0x000a) -> x25519 (0x001d)
-    o[p++]=0x00; o[p++]=0x0a; o[p++]=0x00; o[p++]=0x04; o[p++]=0x00; o[p++]=0x02; o[p++]=0x00; o[p++]=0x1d;
+    // supported_groups (0x000a) -> x25519 (0x001d) + secp256r1 (0x0017)
+    o[p++]=0x00; o[p++]=0x0a; o[p++]=0x00; o[p++]=0x06; o[p++]=0x00; o[p++]=0x04;
+    o[p++]=0x00; o[p++]=0x1d; o[p++]=0x00; o[p++]=0x17;
     // signature_algorithms (0x000d) : on offre les schemas courants (non verifies)
     { static const uint8_t sa[] = {0x08,0x04, 0x04,0x03, 0x05,0x03, 0x08,0x07, 0x04,0x01, 0x08,0x05, 0x06,0x01};
       o[p++]=0x00; o[p++]=0x0d; o[p++]=0x00; o[p++]=(uint8_t)(sizeof sa + 2);
       o[p++]=0x00; o[p++]=(uint8_t)sizeof sa; memcpy(o+p, sa, sizeof sa); p += sizeof sa; }
-    // key_share (0x0033) : x25519
-    o[p++]=0x00; o[p++]=0x33; o[p++]=0x00; o[p++]=0x26; o[p++]=0x00; o[p++]=0x24;
+    // key_share (0x0033) : deux parts -> x25519 (32 o) + secp256r1 (65 o)
+    o[p++]=0x00; o[p++]=0x33; o[p++]=0x00; o[p++]=0x6b; o[p++]=0x00; o[p++]=0x69;  // ext_len=107, list=105
     o[p++]=0x00; o[p++]=0x1d; o[p++]=0x00; o[p++]=0x20; memcpy(o+p, cpub, 32); p += 32;
+    o[p++]=0x00; o[p++]=0x17; o[p++]=0x00; o[p++]=0x41; memcpy(o+p, cpub_p256, 65); p += 65;
     // server_name (0x0000) si l'hote est un nom (pas une IP)
     if (is_name(host)) {
         int hl = (int)strlen(host);
@@ -323,15 +325,18 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
     if (err) *err = 0;
     uint8_t th_cert[32]; int have_th_cert = 0, cv_ok = 0;
 
-    // 1. clés X25519 + aléas
-    uint8_t rnd[96]; sys_random(rnd, 96);
-    uint8_t priv[32], cpub[32];
+    // 1. clés éphémères X25519 + P-256 + aléas (random, session_id, priv P-256)
+    uint8_t rnd[128]; sys_random(rnd, 128);
+    uint8_t priv[32], cpub[32];               // X25519
     memcpy(priv, rnd, 32);
     crypto_x25519_public_key(cpub, priv);
+    uint8_t priv_p[32], cpub_p[65];           // secp256r1 (ECDHE)
+    memcpy(priv_p, rnd + 96, 32);
+    ec_p256_pub(priv_p, cpub_p);
 
-    // 2. ClientHello
+    // 2. ClientHello (offre x25519 + secp256r1)
     uint8_t ch[1024];
-    int chlen = build_client_hello(ch, rnd + 32, rnd + 64, cpub, host);
+    int chlen = build_client_hello(ch, rnd + 32, rnd + 64, cpub, cpub_p, host);
     sha256_ctx th; sha256_init(&th); sha256_update(&th, ch, chlen);
     send_plain(conn, CT_HANDSHAKE, ch, chlen);
 
@@ -350,8 +355,8 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
     int shlen = (recbody[1] << 16) | (recbody[2] << 8) | recbody[3];
     sha256_update(&th, recbody, 4 + shlen);                 // transcript += SH
 
-    // Parcourt SH pour extraire la clé publique serveur (key_share x25519).
-    uint8_t spub[32]; int have_spub = 0;
+    // Parcourt SH pour extraire la part de clé serveur (groupe choisi + clé).
+    uint8_t spub[65]; int have_spub = 0, sgroup = 0;
     {
         int p = 4 + 2 + 32;                                // hs hdr + version + random
         int sidl = recbody[p++]; p += sidl;                // session_id echo
@@ -364,18 +369,22 @@ int tls_handshake(tls_t *t, int conn, const char *host, const char **err) {
         while (p + 4 <= end) {
             int et = (recbody[p] << 8) | recbody[p+1];
             int el = (recbody[p+2] << 8) | recbody[p+3]; p += 4;
-            if (et == 0x0033 && el >= 36) {                // key_share
-                // group(2) + len(2) + key
+            if (et == 0x0033 && el >= 4) {                 // key_share : group(2) len(2) key
+                int gr = (recbody[p] << 8) | recbody[p+1];
                 int kl = (recbody[p+2] << 8) | recbody[p+3];
-                if (kl == 32) { memcpy(spub, recbody + p + 4, 32); have_spub = 1; }
+                if ((gr == 0x001d && kl == 32) || (gr == 0x0017 && kl == 65)) {
+                    memcpy(spub, recbody + p + 4, kl); sgroup = gr; have_spub = 1;
+                }
             }
             p += el;
         }
     }
-    if (!have_spub) { if (err) *err = "serveur sans key_share x25519 (TLS1.3/ChaCha requis)"; return -1; }
+    if (!have_spub) { if (err) *err = "serveur : groupe de clés non supporté"; return -1; }
 
-    // 4. schedule de clés (handshake)
-    uint8_t shared[32]; crypto_x25519(shared, priv, spub);
+    // 4. secret partagé (ECDHE) selon le groupe choisi par le serveur
+    uint8_t shared[32];
+    if (sgroup == 0x001d) crypto_x25519(shared, priv, spub);          // X25519
+    else if (ec_p256_ecdh(priv_p, spub, shared) != 0) { if (err) *err = "ECDH P-256 invalide"; return -1; }
     uint8_t zeros[32]; memset(zeros, 0, 32);
     uint8_t empty_hash[32]; sha256("", 0, empty_hash);
     uint8_t early[32]; hmac_sha256(zeros, 32, zeros, 32, early);

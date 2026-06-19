@@ -32,7 +32,9 @@ une tâche réseau du noyau. Pour l'essayer en QEMU :
    (passerelle SLIRP).
 
 **HTTPS / TLS 1.3** est géré : suites **AES-128-GCM** et **ChaCha20-Poly1305**,
-échange **X25519**, **vérification de certificat RSA, ECDSA P-256 et P-384**,
+échange de clés **X25519 et secp256r1 (P-256)** — le serveur choisit, ce qui
+couvre aussi les serveurs P-256 uniquement comme microsoft.com —,
+**vérification de certificat RSA, ECDSA P-256 et P-384**,
 **magasin d'environ 150 AC racines** (paquet Mozilla), suivi des **redirections**
 et contrôle du **nom d'hôte (SAN)**. Le navigateur affiche `[TLS verifie]` /
 `[TLS non verifie]`. Page d'accueil par défaut : `https://google.com/`.
