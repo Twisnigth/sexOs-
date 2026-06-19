@@ -111,6 +111,9 @@ clavier/souris), en UEFI (OVMF) **et** en BIOS legacy (SeaBIOS).
 - Testé en QEMU contre un dépôt HTTP : `pacman -S cowsay` tire sa dépendance
   `hello`, vérifie chaque SHA-256, installe les deux ; `-Q` les liste ;
   `-R cowsay` le retire (voir `docs/pacman.png`).
+- ▶️ **Dépôt d'exemple prêt à l'emploi** dans [`repo/`](repo/) : lancez
+  `python3 -m http.server 8000` dans ce dossier puis `pacman -Sy` dans MonOS
+  (voir [`repo/README.md`](repo/README.md) pour QEMU et VMware/VirtualBox).
 
 **Applications**
 - ✅ **Terminal** : shell avec `help`, `clear`, `echo`, `ls`, `cd`, `pwd`, `cat`,

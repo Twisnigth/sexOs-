@@ -1,0 +1,4 @@
+MONPAC1
+FILE /usr/share/hello/message.txt 66
+Bonjour ! Le paquet 'hello' a ete installe par pacman dans MonOS.
+
