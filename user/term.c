@@ -975,43 +975,95 @@ static void cmd_fortune(void) {
     tprint(fortunes[rnd() % n]); tprint("\n");
 }
 
-// --- snake (jeu, fleches pour diriger) ---------------------------------------
+// --- snake (jeu) : rendu graphique couleur, niveaux, pause, rejouer ----------
+static void draw_ctext(const char *s, int y, int sc, uint32_t col) {
+    canvas_draw_string(cv, s, cv->width/2 - canvas_text_width(s, sc)/2, y, col, sc);
+}
 static void cmd_snake(void) {
-    int sx[256], sy[256], len = 4, dx = 1, dy = 0;
-    for (int i = 0; i < len; i++) { sx[i] = COLS/2 - i; sy[i] = ROWS/2; }
-    g_rng = (unsigned)sys_time_ms() | 1u;
-    int fx = rnd()%COLS, fy = 1 + rnd()%(ROWS-1), score = 0, dead = 0;
-    for (;;) {
-        event_t e;
-        while (win_poll(&e)) if (e.type==EV_KEY && e.pressed) {
-            if (e.key==KEY_UP && dy==0) { dx=0; dy=-1; }
-            else if (e.key==KEY_DOWN && dy==0) { dx=0; dy=1; }
-            else if (e.key==KEY_LEFT && dx==0) { dx=-1; dy=0; }
-            else if (e.key==KEY_RIGHT && dx==0) { dx=1; dy=0; }
-            else if (e.key==KEY_ESC || e.ch=='q') dead = 2;
+    int W = cv->width, H = cv->height;
+    const int GS = 16, top = 20;                       // case 16px, barre de score
+    int cols = (W - 8) / GS, rows = (H - top - 8) / GS;
+    if (cols > 60) cols = 60;
+    if (rows > 40) rows = 40;
+    int ox = (W - cols*GS) / 2, oy = top + (H - top - rows*GS) / 2;
+    uint32_t bg = rgb(0x0a,0x0e,0x12), border = rgb(0x3a,0x44,0x58),
+             head = rgb(0x9a,0xf0,0x6a), body = rgb(0x46,0xc0,0x52), tail = rgb(0x2f,0x8a,0x3c),
+             food = rgb(0xff,0x4f,0x5a), wt = rgb(0xe6,0xec,0xf2), dim = rgb(0x8a,0x98,0xa6), eye = rgb(0x10,0x18,0x12);
+    static int best = 0;                                // record de la session
+    for (;;) {                                          // boucle de parties
+        static int sx[2600], sy[2600];
+        int len = 4, dx = 1, dy = 0, pdx = 1, pdy = 0;
+        for (int i = 0; i < len; i++) { sx[i] = cols/2 - i; sy[i] = rows/2; }
+        g_rng = (unsigned)sys_time_ms() | 1u;
+        int fx = rnd()%cols, fy = rnd()%rows, score = 0, dead = 0, paused = 0, delay = 140;
+        for (;;) {
+            event_t e;
+            while (win_poll(&e)) if (e.type==EV_KEY && e.pressed) {
+                if (e.key==KEY_UP && pdy==0)        { dx=0; dy=-1; }
+                else if (e.key==KEY_DOWN && pdy==0) { dx=0; dy=1; }
+                else if (e.key==KEY_LEFT && pdx==0) { dx=-1; dy=0; }
+                else if (e.key==KEY_RIGHT && pdx==0){ dx=1; dy=0; }
+                else if (e.ch=='p' || e.ch=='P')    paused = !paused;
+                else if (e.key==KEY_ESC || e.ch=='q') dead = 2;
+            }
+            if (dead) break;
+            if (!paused) {
+                int nx = sx[0]+dx, ny = sy[0]+dy;
+                if (nx<0 || nx>=cols || ny<0 || ny>=rows) { dead = 1; break; }
+                for (int i = 0; i < len; i++) if (sx[i]==nx && sy[i]==ny) dead = 1;
+                if (dead) break;
+                int grow = (nx==fx && ny==fy);
+                for (int i = len; i > 0; i--) { sx[i]=sx[i-1]; sy[i]=sy[i-1]; }
+                sx[0]=nx; sy[0]=ny; pdx=dx; pdy=dy;
+                if (grow) {
+                    if (len < 2599) len++;
+                    score++;
+                    for (;;) {
+                        fx=rnd()%cols; fy=rnd()%rows; int on=0;
+                        for (int i=0;i<len;i++) if (sx[i]==fx&&sy[i]==fy) { on=1; break; }
+                        if (!on) break;
+                    }
+                    if (score % 5 == 0 && delay > 55) delay -= 12;   // accelere par paliers
+                }
+            }
+            // --- rendu ---
+            canvas_fill(cv, bg);
+            char b[40]; char n[8];
+            strcpy(b, "SNAKE   score "); utoa(score, n); strcat(b, n);
+            strcat(b, "   record "); utoa(best>score?best:score, n); strcat(b, n);
+            canvas_draw_string(cv, b, 6, 3, wt, 1);
+            canvas_draw_string(cv, "fleches  p:pause  q:quitter", W - 27*8 - 6, 3, dim, 1);
+            canvas_fill_rect(cv, ox-3, oy-3, cols*GS+6, 3, border);
+            canvas_fill_rect(cv, ox-3, oy+rows*GS, cols*GS+6, 3, border);
+            canvas_fill_rect(cv, ox-3, oy-3, 3, rows*GS+6, border);
+            canvas_fill_rect(cv, ox+cols*GS, oy-3, 3, rows*GS+6, border);
+            canvas_fill_rect(cv, ox+fx*GS+3, oy+fy*GS+3, GS-6, GS-6, food);   // pomme
+            for (int i = len-1; i >= 0; i--) {
+                uint32_t c = (i==0) ? head : (i > len*3/4 ? tail : body);
+                canvas_fill_rect(cv, ox+sx[i]*GS+1, oy+sy[i]*GS+1, GS-2, GS-2, c);
+            }
+            // yeux sur la tete (selon la direction)
+            { int hxp = ox+sx[0]*GS, hyp = oy+sy[0]*GS;
+              int ex = hxp + (dx>0?GS-6:dx<0?2:4), ey = hyp + (dy>0?GS-6:dy<0?2:4);
+              canvas_fill_rect(cv, ex, ey, 3, 3, eye);
+              canvas_fill_rect(cv, ex + (dx? 0:8), ey + (dy?0:8), 3, 3, eye); }
+            if (paused) draw_ctext("-- PAUSE --", H/2, 2, wt);
+            win_damage();
+            uint64_t t = sys_time_ms(); while (sys_time_ms()-t < (unsigned)delay) sys_yield();
         }
-        if (dead) break;
-        int nx = sx[0]+dx, ny = sy[0]+dy;
-        if (nx<0 || nx>=COLS || ny<1 || ny>=ROWS) { dead = 1; break; }
-        for (int i = 0; i < len; i++) if (sx[i]==nx && sy[i]==ny) dead = 1;
-        if (dead) break;
-        int grow = (nx==fx && ny==fy);
-        for (int i = len; i > 0; i--) { sx[i]=sx[i-1]; sy[i]=sy[i-1]; }
-        sx[0]=nx; sy[0]=ny;
-        if (grow) { if (len<255) len++; score++; fx=rnd()%COLS; fy=1+rnd()%(ROWS-1); }
-        memset(cells, ' ', sizeof cells);
-        char b[48]; strcpy(b, "Snake  score: "); char nn[8]; utoa(score, nn); strcat(b, nn); strcat(b, "   (fleches, q=quitter)");
-        for (int i = 0; b[i] && i < COLS; i++) cells[0][i] = b[i];
-        for (int i = 0; i < len; i++) if (sy[i]>=0 && sy[i]<ROWS && sx[i]>=0 && sx[i]<COLS) cells[sy[i]][sx[i]] = (i==0)?'@':'o';
-        cells[fy][fx] = '*';
-        cx = COLS-1; cy = ROWS-1; redraw();
-        uint64_t t = sys_time_ms(); while (sys_time_ms()-t < 110) sys_yield();
-    }
-    if (dead == 1) {
-        const char *m = "  PERDU !  (touche pour quitter)";
-        for (int i = 0; m[i] && i < COLS; i++) cells[ROWS/2][i] = m[i];
-        redraw();
-        for (;;) { event_t e; int r = win_wait(&e); if (r<0) sys_exit(0); if (e.type==EV_KEY && e.pressed) break; }
+        if (score > best) best = score;
+        if (dead == 2) break;                          // quitte le jeu
+        // --- ecran de fin ---
+        canvas_fill(cv, bg);
+        draw_ctext("GAME OVER", H/2 - 50, 3, food);
+        char b[40], n[8]; strcpy(b, "score : "); utoa(score, n); strcat(b, n); draw_ctext(b, H/2 - 6, 2, wt);
+        strcpy(b, "record : "); utoa(best, n); strcat(b, n); draw_ctext(b, H/2 + 16, 1, dim);
+        draw_ctext("R : rejouer     Q : quitter", H/2 + 44, 1, wt);
+        win_damage();
+        int again = 0;
+        for (;;) { event_t e; int r = win_wait(&e); if (r<0) sys_exit(0);
+            if (e.type==EV_KEY && e.pressed) { if (e.ch=='r'||e.ch=='R'){again=1;break;} if (e.ch=='q'||e.key==KEY_ESC){break;} } }
+        if (!again) break;
     }
     memset(cells, ' ', sizeof cells); cx = cy = 0;
 }
