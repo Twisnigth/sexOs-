@@ -114,13 +114,17 @@ void tcp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
         if (idx < 0) return;
         c = &conns[idx];
         memset(c, 0, sizeof(*c));
-        c->used = true; c->state = ST_SYN_RCVD; c->passive = true;
+        // nb = true : une fois acceptée, la connexion est servie en NON BLOQUANT
+        // par sshd (tcp_read/tcp_write) ; c'est tcp_tick() qui émet réellement les
+        // données bufferisées, et il n'agit QUE sur les connexions 'nb'.
+        c->used = true; c->nb = true; c->state = ST_SYN_RCVD; c->passive = true;
         c->rip = src; c->rport = sport; c->lport = dport;
         c->rcv_nxt = seq + 1;
         c->snd_nxt = isn_counter += 0x1000;
         c->snd_una = c->snd_nxt;
         tcp_out(c, TCP_SYN | TCP_ACK, NULL, 0);
         c->snd_nxt++;                       // le SYN consomme un numéro de séquence
+        c->rexmit_at = pit_ms() + 300; c->attempts = 0;  // réémission du SYN-ACK si perdu
         return;
     }
     if (!c) return;
@@ -130,6 +134,7 @@ void tcp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
     if (c->state == ST_SYN_RCVD && (flags & TCP_ACK)) {
         c->snd_una = ack;
         c->state = ST_ESTABLISHED;
+        c->attempts = 0; c->rexmit_at = 0;
         // (les données éventuelles de ce segment sont traitées ci-dessous)
     }
 
@@ -190,6 +195,18 @@ int tcp_accept(uint16_t port, uint32_t timeout_ms) {
             }
         if (pit_ms() >= end) return -1;
     }
+}
+
+// Accept NON BLOQUANT (pour la tâche sshd) : ne touche pas le NIC. À appeler
+// avec les interruptions masquées (exclusion mutuelle avec la tâche réseau).
+int tcp_accept_nb(uint16_t port) {
+    for (int i = 0; i < MAX_CONN; i++)
+        if (conns[i].used && conns[i].passive && !conns[i].accepted &&
+            conns[i].lport == port && conns[i].state == ST_ESTABLISHED) {
+            conns[i].accepted = true;
+            return i;
+        }
+    return -1;
 }
 
 int tcp_connect(ip4_t dst, uint16_t dport) {
@@ -340,6 +357,16 @@ void tcp_tick(void) {
     for (int i = 0; i < MAX_CONN; i++) {
         conn_t *c = &conns[i];
         if (!c->used || !c->nb) continue;
+
+        if (c->state == ST_SYN_RCVD) {
+            // Ouverture passive : réémet le SYN-ACK tant que l'ACK final tarde.
+            if (now >= c->rexmit_at) {
+                if (c->attempts >= 7) { c->reset = true; c->state = ST_CLOSED; continue; }
+                tcp_send_seg(c, TCP_SYN | TCP_ACK, c->snd_una, NULL, 0);
+                c->rexmit_at = now + 300; c->attempts++;
+            }
+            continue;
+        }
 
         if (c->state == ST_SYN_SENT) {
             if (now >= c->rexmit_at) {

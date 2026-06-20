@@ -230,6 +230,9 @@ void kmain(void) {
         // Service réseau : tâche NOYAU qui pompe le NIC et fait avancer TCP/DNS
         // (le NIC n'est plus jamais sondé ailleurs après le démarrage).
         if (nic_present()) sched_new_kernel_task("reseau", net_task_run);
+        //  Serveur SSH : tâche NOYAU qui accepte et sert les connexions (port 22),
+        //  en E/S non bloquantes par-dessus la tâche réseau.
+        if (nic_present()) sched_new_kernel_task("sshd", sshd_run);
         //  AUCUNE application n'est lancée au démarrage : seul le compositeur
         //  (le bureau) tourne. L'utilisateur lance les applications À LA DEMANDE
         //  depuis le menu du dock, qui appelle SYS_spawn (terminal, explorateur,

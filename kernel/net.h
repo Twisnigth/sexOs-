@@ -80,6 +80,7 @@ int  tcp_recv(int conn, void *buf, int len, uint32_t timeout_ms);
 void tcp_close(int conn);
 void tcp_listen_port(uint16_t port);             // ouverture passive (serveur)
 int  tcp_accept(uint16_t port, uint32_t timeout_ms);
+int  tcp_accept_nb(uint16_t port);               // accept non bloquant (sans nic_poll)
 
 // --- Utilitaires de haut niveau (utilisés par le shell) ----------------------
 bool net_dhcp(void);                              // obtient une IP par DHCP

@@ -18,7 +18,9 @@ int ssh_client_exec(ip4_t ip, uint16_t port, const char *user, const char *passw
 
 // Serveur SSH : génère la clé d'hôte et écoute le port 22.
 void ssh_server_init(void);
-// À appeler régulièrement (boucle du bureau) : sert une connexion entrante.
-void sshd_poll(void);
+// Tâche noyau sshd : accepte et sert les connexions (sched_new_kernel_task).
+void sshd_run(void);
+// Clé publique d'hôte (ed25519, 32 octets) — pour l'afficher (fingerprint).
+const uint8_t *ssh_host_pubkey(void);
 
 #endif
