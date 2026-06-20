@@ -16,6 +16,7 @@ void *memcpy(void *, const void *, unsigned long);
 unsigned long strlen(const char *);
 char *strcpy(char *, const char *);
 int strcmp(const char *, const char *);
+int strncmp(const char *, const char *, unsigned long);
 char *strcat(char *, const char *);
 void utoa(unsigned long, char *);
 
@@ -131,6 +132,53 @@ static void cmd_sysinfo(void) {
 static void cmd_help(void) {
     tprint("commandes : help clear echo ls cd pwd cat mkdir touch rm\n");
     tprint("            whoami date sysinfo Phallus\n");
+    tprint("    ssh   : hostkey pubkey pubkey-add ssh-keygen\n");
+}
+
+// --- Gestion des cles SSH (memes fichiers que le serveur sshd) ----------------
+static void authk_path(char *out) {
+    userinfo_t u; sys_whoami(&u);
+    strcpy(out, u.home[0] ? u.home : "/home/user");
+    strcat(out, "/.ssh/authorized_keys");
+}
+// hostkey : cle publique d'hote + empreinte (pour verifier le serveur).
+static void cmd_hostkey(void) {
+    static char b[256]; sys_ssh_hostkey(b, sizeof b); tprint(b);
+}
+// pubkey : liste les cles autorisees de l'utilisateur courant.
+static void cmd_pubkey(void) {
+    char path[256]; authk_path(path);
+    static char buf[4096];
+    vfs_io_t io = { path, 0, buf, sizeof(buf) - 1 };
+    long n = sys_vfs_read(&io);
+    if (n <= 0) { tprint("aucune cle autorisee\n"); return; }
+    buf[n] = 0; tprint(buf);
+    if (buf[n-1] != '\n') tprint("\n");
+}
+// pubkey-add : enregistre une cle publique "ssh-ed25519 <base64> [commentaire]".
+static void cmd_pubkey_add(const char *arg) {
+    if (strncmp(arg, "ssh-ed25519 ", 12) != 0) {
+        tprint("usage: pubkey-add ssh-ed25519 <base64> [commentaire]\n"); return;
+    }
+    const char *b = arg + 12; while (*b == ' ') b++;
+    if (!*b) { tprint("cle invalide\n"); return; }
+    userinfo_t u; sys_whoami(&u);
+    char dir[256]; strcpy(dir, u.home[0] ? u.home : "/home/user"); strcat(dir, "/.ssh");
+    dirent_t e;
+    if (sys_vfs_stat(dir, &e) != 0) sys_vfs_create(dir, 1);     // cree .ssh au besoin
+    char path[256]; strcpy(path, dir); strcat(path, "/authorized_keys");
+    if (sys_vfs_stat(path, &e) != 0) sys_vfs_create(path, 0);
+    long off = (sys_vfs_stat(path, &e) == 0) ? (long)e.size : 0;
+    char line[300]; int lo = 0;
+    for (const char *q = arg; *q && lo < 298; q++) line[lo++] = *q;
+    line[lo++] = '\n'; line[lo] = 0;
+    vfs_io_t io = { path, (uint64_t)off, line, (uint64_t)lo };
+    long w = sys_vfs_write(&io);
+    tprint(w > 0 ? "cle ajoutee\n" : "echec (permission ?)\n");
+}
+// ssh-keygen : genere une paire, ajoute la publique, imprime la cle privee.
+static void cmd_keygen(void) {
+    static char b[1024]; sys_ssh_keygen(b, sizeof b); tprint(b);
 }
 
 // --- « Phallus » : fastfetch (art en points a gauche + infos a droite) -------
@@ -200,6 +248,10 @@ static void run(char *line) {
     else if (!strcmp(cmd, "date")) cmd_date();
     else if (!strcmp(cmd, "sysinfo")) cmd_sysinfo();
     else if (!strcmp(cmd, "Phallus") || !strcmp(cmd, "phallus")) cmd_phallus();
+    else if (!strcmp(cmd, "hostkey")) cmd_hostkey();
+    else if (!strcmp(cmd, "pubkey")) cmd_pubkey();
+    else if (!strcmp(cmd, "pubkey-add")) cmd_pubkey_add(arg);
+    else if (!strcmp(cmd, "ssh-keygen")) cmd_keygen();
     else { tprint(cmd); tprint(": commande inconnue\n"); }
 }
 

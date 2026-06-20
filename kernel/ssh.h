@@ -23,4 +23,10 @@ void sshd_run(void);
 // Clé publique d'hôte (ed25519, 32 octets) — pour l'afficher (fingerprint).
 const uint8_t *ssh_host_pubkey(void);
 
+// Texte de la clé publique d'hôte + empreinte SHA256 (pour le terminal local).
+int ssh_hostkey_text(char *out, int max);
+// Génère une paire ed25519, l'ajoute aux clés autorisées de 'user' et écrit la
+// clé publique + la clé privée (format OpenSSH) dans out. Renvoie la taille.
+int ssh_keygen_text(const char *user, char *out, int max);
+
 #endif

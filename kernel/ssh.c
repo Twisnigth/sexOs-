@@ -551,6 +551,43 @@ static int ssh_export_privkey(const uint8_t sk[64], const uint8_t pk[32],
     out[o]=0; return o;
 }
 
+// Texte de la clé publique d'hôte + empreinte SHA256 (affichage local/distant).
+int ssh_hostkey_text(char *out, int max) {
+    uint8_t blob[64]; int bl=ssh_pubkey_blob(host_pk,blob);
+    char b64[128]; b64_encode(blob,bl,b64,sizeof(b64));
+    char fp[80]; ssh_fingerprint(host_pk,fp,sizeof(fp));
+    int o=0;
+    for (const char *q="ssh-ed25519 "; *q && o<max-1; q++) out[o++]=*q;
+    for (int i=0;b64[i] && o<max-1;i++) out[o++]=b64[i];
+    if (o<max-1) out[o++]='\n';
+    for (const char *q="empreinte : "; *q && o<max-1; q++) out[o++]=*q;
+    for (int i=0;fp[i] && o<max-1;i++) out[o++]=fp[i];
+    if (o<max-1) out[o++]='\n';
+    out[o]=0; return o;
+}
+
+// Génère une paire ed25519, ajoute la clé publique aux clés autorisées de 'user'
+//  et écrit (clé publique + clé privée PEM) dans out. Renvoie la taille.
+int ssh_keygen_text(const char *user, char *out, int max) {
+    uint8_t seed[32], sk[64], pk[32];
+    csprng_bytes(seed,32);
+    crypto_ed25519_key_pair(sk,pk,seed);
+    uint8_t blob[64]; int bl=ssh_pubkey_blob(pk,blob);
+    char b64[128]; b64_encode(blob,bl,b64,sizeof(b64));
+    char line[160]; int lo=0;
+    for (const char *q="ssh-ed25519 "; *q; q++) line[lo++]=*q;
+    for (int i=0;b64[i];i++) line[lo++]=b64[i];
+    for (const char *q=" sexos-keygen"; *q; q++) line[lo++]=*q;
+    line[lo]=0;
+    if (user) ssh_authk_add_line(user, line);
+    int o=0;
+    for (const char *q="cle publique (ajoutee a authorized_keys) :\n"; *q && o<max-1; q++) out[o++]=*q;
+    for (int i=0;line[i] && o<max-1;i++) out[o++]=line[i];
+    for (const char *q="\n\ncle privee (enregistrez-la cote client, ex: ~/.ssh/id_ed25519) :\n"; *q && o<max-1; q++) out[o++]=*q;
+    o += ssh_export_privkey(sk, pk, "sexos-keygen", out+o, max-o);
+    out[o]=0; return o;
+}
+
 static int shell_exec_one(const char *user, const char *line, char *out, int outmax) {
     int n = 0;
     #define OUT(s) do { for (const char *q=(s); *q && n<outmax-1; q++) out[n++]=*q; } while(0)
@@ -586,11 +623,7 @@ static int shell_exec_one(const char *user, const char *line, char *out, int out
     }
     else if (strcmp(cmd, "hostkey") == 0) {
         // Clé publique d'hôte (à ajouter au known_hosts) + empreinte SHA256.
-        uint8_t blob[64]; int bl=ssh_pubkey_blob(host_pk,blob);
-        char b64[128]; b64_encode(blob,bl,b64,sizeof(b64));
-        OUT("ssh-ed25519 "); OUT(b64); OUT("\n");
-        char fp[80]; ssh_fingerprint(host_pk,fp,sizeof(fp));
-        OUT("empreinte : "); OUT(fp); OUT("\n");
+        static char hk[256]; ssh_hostkey_text(hk, sizeof hk); OUT(hk);
     }
     else if (strcmp(cmd, "pubkey") == 0 || strcmp(cmd, "authorized-keys") == 0) {
         // Liste les clés autorisées de l'utilisateur.
@@ -614,21 +647,7 @@ static int shell_exec_one(const char *user, const char *line, char *out, int out
     else if (strcmp(cmd, "ssh-keygen") == 0) {
         // Genere une paire ed25519, ajoute la publique aux cles autorisees et
         // imprime la cle privee (a enregistrer cote client comme identite).
-        uint8_t seed[32], sk[64], pk[32];
-        csprng_bytes(seed,32);
-        crypto_ed25519_key_pair(sk,pk,seed);
-        uint8_t blob[64]; int bl=ssh_pubkey_blob(pk,blob);
-        char b64[128]; b64_encode(blob,bl,b64,sizeof(b64));
-        char line[160]; int lo=0;
-        for (const char *q="ssh-ed25519 "; *q; q++) line[lo++]=*q;
-        for (int i=0;b64[i];i++) line[lo++]=b64[i];
-        for (const char *q=" sexos-keygen"; *q; q++) line[lo++]=*q;
-        line[lo]=0;
-        ssh_authk_add_line(user,line);
-        OUT("cle publique (ajoutee a authorized_keys) :\n"); OUT(line); OUT("\n\n");
-        OUT("cle privee (enregistrez-la, ex: ~/.ssh/id_ed25519_sexos) :\n");
-        static char pem[1024]; ssh_export_privkey(sk,pk,"sexos-keygen",pem,sizeof(pem));
-        OUT(pem);
+        static char kb[1024]; ssh_keygen_text(user, kb, sizeof kb); OUT(kb);
     }
     else if (cmd[0]) { OUT(cmd); OUT(": commande inconnue\n"); }
     out[n] = 0;

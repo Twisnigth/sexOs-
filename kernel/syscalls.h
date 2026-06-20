@@ -59,6 +59,8 @@
 #define SYS_tcp_recv    0x275      // (id, buf, len) -> octets / 0=rien / -1=fermé
 #define SYS_tcp_close   0x276      // (id)
 #define SYS_random      0x277      // (buf, len) : octets aléatoires (CSPRNG noyau)
+#define SYS_ssh_hostkey 0x278      // (buf, max) -> texte cle d'hote + empreinte
+#define SYS_ssh_keygen  0x279      // (buf, max) -> genere une cle, l'ajoute, rend la privee
 
 // --- Système de fichiers (par chemin ; agit sur le VFS du noyau) -------------
 #define SYS_vfs_list    0x230      // (path, index, *dirent) -> 1=entrée / 0=fin / -1=erreur

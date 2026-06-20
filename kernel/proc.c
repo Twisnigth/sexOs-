@@ -24,6 +24,7 @@
 #include "users.h"
 #include "net.h"
 #include "crypto.h"
+#include "ssh.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -311,6 +312,11 @@ long syscall_dispatch(sysargs_t *a) {
         return r;
     }
     case SYS_random:     csprng_bytes((void *)a->rdi, (size_t)a->rsi); return 0;
+    case SYS_ssh_hostkey: return ssh_hostkey_text((char *)a->rdi, (int)a->rsi);
+    case SYS_ssh_keygen: {
+        const user_t *cu = users_current();
+        return ssh_keygen_text(cu ? cu->name : "user", (char *)a->rdi, (int)a->rsi);
+    }
     case SYS_tcp_open:   return tcp_open((ip4_t)a->rdi, (uint16_t)a->rsi);
     case SYS_tcp_state:  return tcp_state((int)a->rdi);
     case SYS_tcp_send:   return tcp_write((int)a->rdi, (const void *)a->rsi, (int)a->rdx);

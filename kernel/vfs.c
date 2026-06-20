@@ -172,6 +172,11 @@ void vfs_init(void) {
     vfs_node_t *docs = vfs_create(user, "Documents", VFS_DIR);
     vfs_create(user, "Images", VFS_DIR);
 
+    // Dossier SSH : .ssh/authorized_keys (vide) — pret a recevoir des cles
+    //  publiques (commande "pubkey-add" du terminal ou du shell distant).
+    vfs_node_t *dotssh = vfs_create(user, ".ssh", VFS_DIR);
+    vfs_create(dotssh, "authorized_keys", VFS_FILE);
+
     vfs_node_t *f;
     f = vfs_create(user, "bienvenue.txt", VFS_FILE);
     vfs_set_contents(f,
