@@ -64,7 +64,10 @@ static inline long sys_vfs_read(vfs_io_t *io)   { return _sc1(SYS_vfs_read, (lon
 static inline long sys_vfs_write(vfs_io_t *io)  { return _sc1(SYS_vfs_write, (long)io); }
 static inline int  sys_vfs_create(const char *p, int type) { return (int)_sc2(SYS_vfs_create, (long)p, type); }
 static inline int  sys_vfs_delete(const char *p) { return (int)_sc1(SYS_vfs_delete, (long)p); }
+static inline long sys_vfs_save(vfs_io_t *io)   { return _sc1(SYS_vfs_save, (long)io); }
 static inline int  sys_vfs_stat(const char *p, dirent_t *e) { return (int)_sc2(SYS_vfs_stat, (long)p, (long)e); }
+static inline int  sys_clip_set(const void *b, int n) { return (int)_sc2(SYS_clip_set, (long)b, n); }
+static inline int  sys_clip_get(void *b, int n)       { return (int)_sc2(SYS_clip_get, (long)b, n); }
 static inline void sys_whoami(userinfo_t *u)    { _sc1(SYS_whoami, (long)u); }
 static inline int  sys_can_write(const char *p) { return (int)_sc1(SYS_can_write, (long)p); }
 static inline void sys_rtc(void *t)             { _sc1(SYS_rtc_now, (long)t); }

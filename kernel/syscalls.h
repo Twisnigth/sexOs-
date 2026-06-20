@@ -68,7 +68,12 @@
 #define SYS_vfs_write   0x232      // (vfs_io*) -> octets écrits, -1 si interdit
 #define SYS_vfs_create  0x233      // (path, type) -> 0/-1
 #define SYS_vfs_delete  0x234      // (path) -> 0/-1
+#define SYS_vfs_save    0x235      // (vfs_io*) -> remplace tout le fichier (tronque)
 #define SYS_vfs_stat    0x236      // (path, *dirent) -> 0=ok / -1=absent
+
+// --- Presse-papiers (copier/coller, partagé entre applications) ---------------
+#define SYS_clip_set    0x254      // (buf, len) : copie dans le presse-papiers
+#define SYS_clip_get    0x255      // (buf, max) -> taille copiée
 
 // --- Comptes / permissions ---------------------------------------------------
 #define SYS_whoami      0x240      // (*userinfo)

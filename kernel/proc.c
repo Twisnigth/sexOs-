@@ -137,6 +137,10 @@ void syscall_init(void) {
 
 long syscall_dispatch(sysargs_t *a);     // défini plus bas
 
+// Presse-papiers global (copier/coller entre applications ring 3).
+static char g_clipboard[8192];
+static int  g_clip_len;
+
 // Point d'entrée unifié des appels système (cf. usermode.asm). Reçoit le
 // contexte complet de la tâche et renvoie le contexte à reprendre : la MÊME
 // tâche pour un appel normal, une AUTRE pour yield / attente bloquante / exit.
@@ -450,6 +454,25 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *n = vfs_resolve(path);
         if (!n) return -1;
         return vfs_delete(n) ? 0 : -1;
+    }
+    case SYS_vfs_save: {                          // remplace tout le fichier (tronque)
+        vfs_io_t *io = (vfs_io_t *)a->rdi;
+        if (!users_can_write_path(io->path)) return -1;
+        vfs_node_t *f = vfs_resolve(io->path);
+        if (!f || f->type != VFS_FILE) return -1;
+        return vfs_replace(f, io->buf, io->len);
+    }
+    case SYS_clip_set: {                          // presse-papiers : copier
+        int n = (int)a->rsi; if (n < 0) n = 0;
+        if (n > (int)sizeof(g_clipboard)) n = sizeof(g_clipboard);
+        memcpy(g_clipboard, (const void *)a->rdi, n); g_clip_len = n;
+        return n;
+    }
+    case SYS_clip_get: {                          // presse-papiers : coller
+        int max = (int)a->rsi; int n = g_clip_len < max ? g_clip_len : max;
+        if (n < 0) n = 0;
+        memcpy((void *)a->rdi, g_clipboard, n);
+        return n;
     }
     case SYS_vfs_stat: {
         vfs_node_t *n = vfs_resolve((const char *)a->rdi);

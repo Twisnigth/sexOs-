@@ -37,6 +37,7 @@ bool        vfs_move(vfs_node_t *node, vfs_node_t *newdir);
 
 int  vfs_read(vfs_node_t *file, size_t off, void *buf, size_t len);
 int  vfs_write(vfs_node_t *file, size_t off, const void *buf, size_t len);
+int  vfs_replace(vfs_node_t *file, const void *buf, size_t len);  // remplace tout (tronque)
 bool vfs_set_contents(vfs_node_t *file, const char *text);  // remplace par une chaîne
 
 vfs_node_t *vfs_resolve(const char *path);                  // chemin absolu "/a/b"

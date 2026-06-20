@@ -118,6 +118,16 @@ bool vfs_set_contents(vfs_node_t *file, const char *text) {
     return true;
 }
 
+// Remplace TOUT le contenu d'un fichier (tronque à 'len' octets, binaire-safe).
+//  Utilisé par l'éditeur (sauvegarde) : vfs_write ne fait que grandir le fichier.
+int vfs_replace(vfs_node_t *file, const void *buf, size_t len) {
+    if (!file || file->type != VFS_FILE) return -1;
+    if (!ensure_capacity(file, len)) return -1;
+    if (len) memcpy(file->data, buf, len);
+    file->size = len;
+    return (int)len;
+}
+
 vfs_node_t *vfs_resolve(const char *path) {
     if (!path || path[0] != '/') return NULL;
     vfs_node_t *cur = root;
