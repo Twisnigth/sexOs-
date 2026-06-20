@@ -174,7 +174,7 @@ static void cmd_help(void) {
     tprint("           uptime free ps sleep cal history reboot Phallus\n");
     tprint("reseau   : ip resolve <hote> ping <hote> curl <url> wget <url>\n");
     tprint("ssh      : hostkey pubkey pubkey-add ssh-keygen\n");
-    tprint("fun      : cowsay <txt> cmatrix\n");
+    tprint("fun      : cowsay <txt> cmatrix sex\n");
     tprint("  fleche haut/bas : historique   ^C copier   ^V coller\n");
 }
 
@@ -766,6 +766,52 @@ static void cmd_cmatrix(void) {
     memset(cells, ' ', sizeof cells); cx = cy = 0;
 }
 
+// --- « sex » : animation coquine en ASCII (phallus qui pompe + coeurs) --------
+static const char *heart_bmp[6] = {
+    " ## ## ",
+    "#######",
+    "#######",
+    " ##### ",
+    "  ###  ",
+    "   #   ",
+};
+static void draw_heart(int x0, int y0, int sc, uint32_t col) {
+    for (int y = 0; y < 6; y++)
+        for (int x = 0; heart_bmp[y][x]; x++)
+            if (heart_bmp[y][x] == '#') canvas_fill_rect(cv, x0 + x*sc, y0 + y*sc, sc, sc, col);
+}
+static void cmd_sex(void) {
+    uint32_t bg = rgb(0x16,0x05,0x10), pink = rgb(0xff,0x5a,0xa0),
+             red = rgb(0xff,0x2a,0x55), w = rgb(0xff,0xdf,0xe8), dim = rgb(0x9a,0x6a,0x7a);
+    int W = cv->width, H = cv->height;
+    g_rng = (unsigned)sys_time_ms() | 1u;
+    enum { NH = 14 };
+    int hx[NH], hy[NH], hs[NH];
+    for (int i = 0; i < NH; i++) { hx[i] = rnd() % (W - 16); hy[i] = rnd() % H; hs[i] = 2 + rnd() % 3; }
+    int px = W/2 - (PHALLUS_W * 2) / 2;                 // phallus centre (echelle 2)
+    for (int frame = 0; ; frame++) {
+        event_t e; if (win_poll(&e)) { if (e.type == EV_KEY && e.pressed) break; }
+        canvas_fill(cv, bg);
+        // Coeurs qui montent.
+        for (int i = 0; i < NH; i++) {
+            draw_heart(hx[i], hy[i], hs[i], (i & 1) ? pink : red);
+            hy[i] -= hs[i];
+            if (hy[i] < -6*hs[i]) { hy[i] = H + (rnd() % 40); hx[i] = rnd() % (W - 16); hs[i] = 2 + rnd() % 3; }
+        }
+        // Phallus qui « pompe » (oscillation verticale, onde triangulaire).
+        int tri = frame % 16; int off = (tri < 8 ? tri : 16 - tri) - 4;   // -4..+4
+        draw_dot_art(px, H/2 - (PHALLUS_H * 2) / 2 + off * 4, 2, pink);
+        // Titre + invite.
+        const char *t = "sexOs";
+        canvas_draw_string(cv, t, W/2 - canvas_text_width(t, 3) / 2, 6, w, 3);
+        const char *q = "(touche pour quitter)";
+        canvas_draw_string(cv, q, W/2 - canvas_text_width(q, 1) / 2, H - 16, dim, 1);
+        win_damage();
+        uint64_t t0 = sys_time_ms(); while (sys_time_ms() - t0 < 70) sys_yield();
+    }
+    memset(cells, ' ', sizeof cells); cx = cy = 0;
+}
+
 static void run(char *line) {
     char *cmd = line, *arg = line;
     while (*arg && *arg != ' ') arg++;
@@ -811,6 +857,7 @@ static void run(char *line) {
     else if (!strcmp(cmd, "cal")) cmd_cal();
     else if (!strcmp(cmd, "cowsay")) cmd_cowsay(arg);
     else if (!strcmp(cmd, "cmatrix") || !strcmp(cmd, "matrix")) cmd_cmatrix();
+    else if (!strcmp(cmd, "sex")) cmd_sex();
     else if (!strcmp(cmd, "reboot")) cmd_reboot();
     else if (!strcmp(cmd, "Phallus") || !strcmp(cmd, "phallus")) cmd_phallus();
     else if (!strcmp(cmd, "hostkey")) cmd_hostkey();
