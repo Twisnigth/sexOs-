@@ -174,7 +174,7 @@ static void cmd_help(void) {
     tprint("fichiers : ls cd pwd cat head tail wc grep find tree stat du hexdump\n");
     tprint("           cp mv rm mkdir touch nano sort uniq rev   (echo ... > fichier)\n");
     tprint("systeme  : help clear echo whoami id users su passwd uname about date\n");
-    tprint("           sysinfo uptime free df sync ps sleep cal seq calc base64 history reboot\n");
+    tprint("           sysinfo uptime free df sync ps lsusb sleep cal seq calc base64 history reboot\n");
     tprint("reseau   : ip resolve ping curl wget   ssh user@hote [cmd]\n");
     tprint("cles ssh : hostkey pubkey pubkey-add ssh-keygen\n");
     tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus beep play\n");
@@ -722,6 +722,27 @@ static void cmd_ps(void) {
         tprint(p.name); tprint("\n");
     }
 }
+// lsusb : liste les peripheriques USB detectes.
+static void cmd_lsusb(void) {
+    usbinfo_t u; int i = 0, n = 0;
+    while (sys_usb_list(i++, &u) == 1) {
+        n++;
+        // VID:PID
+        const char *hx = "0123456789abcdef";
+        char id[10]; id[0]=hx[(u.vendor>>12)&15]; id[1]=hx[(u.vendor>>8)&15]; id[2]=hx[(u.vendor>>4)&15]; id[3]=hx[u.vendor&15];
+        id[4]=':'; id[5]=hx[(u.product>>12)&15]; id[6]=hx[(u.product>>8)&15]; id[7]=hx[(u.product>>4)&15]; id[8]=hx[u.product&15]; id[9]=0;
+        tprint(id); tprint("  ");
+        uint8_t cl = u.if_class ? u.if_class : u.dev_class;
+        const char *cn = cl==3 ? "HID (clavier/souris)" : cl==8 ? "stockage de masse" :
+                         cl==9 ? "concentrateur (hub)" : cl==2 ? "communication" :
+                         cl==1 ? "audio" : "peripherique";
+        tprint(cn);
+        const char *sp = u.speed==4 ? "  [USB3 SS]" : u.speed==3 ? "  [USB2 HS]" :
+                         u.speed==2 ? "  [LS]" : "  [FS]";
+        tprint(sp); tprint("\n");
+    }
+    if (n == 0) tprint("aucun peripherique USB (ajoute -device qemu-xhci -device usb-...)\n");
+}
 static void cmd_sleep(const char *arg) {
     int s = 0; for (const char *p = arg; *p >= '0' && *p <= '9'; p++) s = s*10 + (*p - '0');
     if (s <= 0) { tprint("usage: sleep <secondes>\n"); return; }
@@ -1201,6 +1222,7 @@ static void run(char *line) {
     else if (!strcmp(cmd, "du")) cmd_du(arg);
     else if (!strcmp(cmd, "hexdump") || !strcmp(cmd, "xxd")) cmd_hexdump(arg);
     else if (!strcmp(cmd, "ps")) cmd_ps();
+    else if (!strcmp(cmd, "lsusb")) cmd_lsusb();
     else if (!strcmp(cmd, "sleep")) cmd_sleep(arg);
     else if (!strcmp(cmd, "cal")) cmd_cal();
     else if (!strcmp(cmd, "cowsay")) cmd_cowsay(arg);

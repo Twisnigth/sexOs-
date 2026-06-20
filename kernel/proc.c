@@ -27,6 +27,7 @@
 #include "ssh.h"
 #include "speaker.h"
 #include "fs.h"
+#include "usb.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -517,6 +518,15 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_can_write:
         return users_can_write_path((const char *)a->rdi) ? 1 : 0;
+    case SYS_usb_list: {
+        const usb_dev_t *d = usb_get((int)a->rdi);
+        if (!d) return 0;
+        usbinfo_t *u = (usbinfo_t *)a->rsi;
+        if (u) { u->vendor = d->vendor; u->product = d->product;
+                 u->dev_class = d->dev_class; u->if_class = d->if_class;
+                 u->speed = d->speed; u->port = d->port; }
+        return 1;
+    }
     case SYS_users_list: {
         const user_t *cu = users_get((int)a->rdi);
         if (!cu) return 0;

@@ -34,6 +34,7 @@
 #include "httpd.h"
 #include "speaker.h"
 #include "fs.h"
+#include "usb.h"
 #include "proc.h"
 #include "pkg.h"
 #include "sched.h"
@@ -189,6 +190,9 @@ void kmain(void) {
     // --- Cryptographie (CSPRNG + validation par vecteurs de test) ------------
     csprng_init();
     crypto_selftest();
+
+    // --- USB : controleur xHCI + enumeration des peripheriques ---------------
+    usb_init();
 
     // --- Ring 3 + binaires ELF Linux (Phase 4) -------------------------------
     syscall_init();

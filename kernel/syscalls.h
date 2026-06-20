@@ -46,6 +46,7 @@
 #define SYS_rtc_now     0x251      // remplit rtc_time_t (date/heure CMOS)
 #define SYS_sysinfo     0x252      // remplit sysinfo_t (mémoire, uptime, PCI)
 #define SYS_proc_list   0x253      // (index, *procinfo) -> 1=rempli / 0=au-delà
+#define SYS_usb_list    0x256      // (index, *usbinfo) -> 1=rempli / 0=fin
 
 // --- Système -----------------------------------------------------------------
 #define SYS_reboot      0x260      // redémarre la machine (sauvegarde le disque avant)
@@ -111,6 +112,12 @@ typedef struct {
     uint32_t mem_total_mb, mem_used_mb, uptime_s, pci_count;
     uint32_t fs_persistent;     // 1 si un disque persistant est present
 } sysinfo_t;
+
+// Un périphérique USB (SYS_usb_list), pour la commande lsusb.
+typedef struct {
+    uint16_t vendor, product;
+    uint8_t  dev_class, if_class, speed, port;
+} usbinfo_t;
 
 // État de l'interface réseau renvoyé par SYS_net_info (ordre hôte).
 typedef struct { uint32_t ip, mask, gateway, dns; int up; } netinfo_t;
