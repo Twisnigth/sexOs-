@@ -19,7 +19,7 @@ enum { ST_CLOSED, ST_SYN_SENT, ST_SYN_RCVD, ST_ESTABLISHED, ST_CLOSE_WAIT };
 
 #define MAX_CONN 8
 #define MAX_LISTEN 4
-#define RXBUF 32768
+#define RXBUF 65536          // tampon de réception : plus grand = fenêtre plus large
 #define TXBUF 8192
 #define TCP_MSS 1400
 
@@ -308,10 +308,19 @@ int tcp_read(int id, void *buf, int len) {
     if (id < 0 || id >= MAX_CONN || !conns[id].used) return -1;
     conn_t *c = &conns[id];
     if (c->rxlen > 0) {
+        int win_before = RXBUF - c->rxlen;
         int n = c->rxlen < len ? c->rxlen : len;
         memcpy(buf, c->rx, n);
         memmove(c->rx, c->rx + n, c->rxlen - n);
         c->rxlen -= n;
+        // Mise à jour de fenêtre : en vidant le tampon, la fenêtre de réception se
+        // rouvre. Sans ACK proactif, le pair (qui s'était arrêté sur fenêtre
+        // pleine) attendrait sa sonde de fenêtre nulle (plusieurs secondes) avant
+        // de reprendre -> longs blocages. On le prévient dès qu'on libère de la
+        // place (au moins ~2 segments) et que la connexion est établie.
+        int win_after = RXBUF - c->rxlen;
+        if (c->state == ST_ESTABLISHED && win_after - win_before >= 2 * TCP_MSS)
+            tcp_out(c, TCP_ACK, NULL, 0);
         return n;
     }
     if (c->reset) return -1;
@@ -334,9 +343,12 @@ void tcp_tick(void) {
 
         if (c->state == ST_SYN_SENT) {
             if (now >= c->rexmit_at) {
-                if (c->attempts >= 6) { c->reset = true; c->state = ST_CLOSED; continue; }
+                if (c->attempts >= 7) { c->reset = true; c->state = ST_CLOSED; continue; }
                 tcp_send_seg(c, TCP_SYN, c->snd_una, NULL, 0);
-                c->rexmit_at = now + 600; c->attempts++;
+                // Le 1er SYN est souvent perdu le temps de résoudre l'ARP de la
+                // passerelle (résolu en ~ms). On réémet vite les 2 premières fois
+                // (150 ms) au lieu d'attendre 600 ms, puis on revient à 600 ms.
+                c->rexmit_at = now + (c->attempts < 2 ? 150 : 600); c->attempts++;
             }
             continue;
         }
