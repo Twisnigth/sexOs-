@@ -31,6 +31,8 @@
 #include "net.h"
 #include "crypto.h"
 #include "ssh.h"
+#include "httpd.h"
+#include "speaker.h"
 #include "proc.h"
 #include "pkg.h"
 #include "sched.h"
@@ -181,6 +183,7 @@ void kmain(void) {
 
     sti();                   // on active les interruptions
     kprintf("[cpu] interruptions activees\n");
+    speaker_jingle();        // petit son de demarrage (haut-parleur PC)
 
     // --- Cryptographie (CSPRNG + validation par vecteurs de test) ------------
     csprng_init();
@@ -210,7 +213,7 @@ void kmain(void) {
 
     // --- Réseau (carte e1000 + configuration automatique par DHCP) -----------
     net_init();
-    if (nic_present()) { net_dhcp(); ssh_server_init(); }
+    if (nic_present()) { net_dhcp(); ssh_server_init(); httpd_init(); }
 
     // --- VFS + comptes côté NOYAU (partagés par sshd, pacman ET le bureau) ---
     vfs_init();
@@ -233,6 +236,8 @@ void kmain(void) {
         //  Serveur SSH : tâche NOYAU qui accepte et sert les connexions (port 22),
         //  en E/S non bloquantes par-dessus la tâche réseau.
         if (nic_present()) sched_new_kernel_task("sshd", sshd_run);
+        //  Serveur web : sert les fichiers du VFS sur le port 80.
+        if (nic_present()) sched_new_kernel_task("httpd", httpd_run);
         //  AUCUNE application n'est lancée au démarrage : seul le compositeur
         //  (le bureau) tourne. L'utilisateur lance les applications À LA DEMANDE
         //  depuis le menu du dock, qui appelle SYS_spawn (terminal, explorateur,

@@ -25,6 +25,7 @@
 #include "net.h"
 #include "crypto.h"
 #include "ssh.h"
+#include "speaker.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -294,6 +295,13 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_reboot:
         outb(0x64, 0xFE);
+        return 0;
+    case SYS_beep:
+        // beep() attend via pit_sleep_ms (hlt) : il FAUT les interruptions
+        // (l'entree syscall les masque, FMASK). On les reactive le temps du bip.
+        __asm__ volatile ("sti");
+        beep((uint32_t)a->rdi, (uint32_t)a->rsi);
+        __asm__ volatile ("cli");
         return 0;
     // --- Réseau : sockets TCP non bloquantes + DNS (navigateur ring 3) -------
     case SYS_net_info: {

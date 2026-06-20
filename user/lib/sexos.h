@@ -36,6 +36,7 @@ static inline int      sys_get_cpl(void)          { return (int)_sc0(SYS_get_cpl
 static inline void     sys_write(const char *s, unsigned long n) { _sc3(1, 1, (long)s, (long)n); }
 static inline void     sys_exit(int code)         { _sc1(60, code); for (;;) {} }
 static inline void     sys_reboot(void)           { _sc0(SYS_reboot); for (;;) {} }
+static inline void     sys_beep(int freq, int ms) { _sc2(SYS_beep, freq, ms); }
 static inline int      sys_getpid(void)           { return (int)_sc0(39); }
 
 // --- IPC ---------------------------------------------------------------------

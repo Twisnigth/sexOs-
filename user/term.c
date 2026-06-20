@@ -177,7 +177,7 @@ static void cmd_help(void) {
     tprint("           sysinfo uptime free df ps sleep cal seq calc base64 history reboot\n");
     tprint("reseau   : ip resolve ping curl wget   ssh user@hote [cmd]\n");
     tprint("cles ssh : hostkey pubkey pubkey-add ssh-keygen\n");
-    tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus\n");
+    tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus beep play\n");
     tprint("  fleche haut/bas : historique   ^C copier   ^V coller\n");
 }
 
@@ -520,6 +520,24 @@ static void cmd_mv(const char *arg) {
     sys_vfs_delete(ps);
 }
 static void cmd_reboot(void) { tprint("redemarrage...\n"); redraw(); sys_reboot(); }
+// beep [freq] [ms] : bip via le haut-parleur PC.
+static void cmd_beep(const char *arg) {
+    char t1[16], t2[16]; const char *p = next_tok(arg, t1, sizeof t1); next_tok(p, t2, sizeof t2);
+    int f = 0, d = 0;
+    for (const char *q = t1; *q >= '0' && *q <= '9'; q++) f = f*10 + (*q-'0');
+    for (const char *q = t2; *q >= '0' && *q <= '9'; q++) d = d*10 + (*q-'0');
+    if (f <= 0) f = 800;
+    if (d <= 0) d = 200;
+    if (f < 20) f = 20;
+    if (f > 12000) f = 12000;
+    if (d > 3000) d = 3000;
+    sys_beep(f, d);
+}
+// play : joue une petite melodie.
+static void cmd_play(void) {
+    static const int mel[][2] = { {523,160},{587,160},{659,160},{698,160},{784,320},{698,160},{659,160},{587,160},{523,360} };
+    for (int i = 0; i < 9; i++) sys_beep(mel[i][0], mel[i][1]);
+}
 
 // Analyse "a.b.c.d" -> ip (ordre hote). Renvoie 1 si valide.
 static int parse_ip(const char *s, uint32_t *ip) {
@@ -1177,6 +1195,8 @@ static void run(char *line) {
     else if (!strcmp(cmd, "cowsay")) cmd_cowsay(arg);
     else if (!strcmp(cmd, "cmatrix") || !strcmp(cmd, "matrix")) cmd_cmatrix();
     else if (!strcmp(cmd, "sex")) cmd_sex();
+    else if (!strcmp(cmd, "beep")) cmd_beep(arg);
+    else if (!strcmp(cmd, "play")) cmd_play();
     else if (!strcmp(cmd, "reboot")) cmd_reboot();
     else if (!strcmp(cmd, "Phallus") || !strcmp(cmd, "phallus")) cmd_phallus();
     else if (!strcmp(cmd, "hostkey")) cmd_hostkey();

@@ -49,6 +49,7 @@
 
 // --- Système -----------------------------------------------------------------
 #define SYS_reboot      0x260      // redémarre la machine
+#define SYS_beep        0x261      // (freq_hz, duree_ms) : bip haut-parleur PC
 
 // --- Réseau : sockets TCP NON BLOQUANTES + DNS (pour le navigateur ring 3) ----
 #define SYS_net_info    0x270      // (*netinfo_t) -> 0
