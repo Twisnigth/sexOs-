@@ -366,6 +366,7 @@ int ssh_client_exec(ip4_t ip, uint16_t port, const char *user, const char *passw
 #include "users.h"
 #include "rtc.h"
 #include "pmm.h"
+#include "ascii_art.h"      // banniere « sexOs » (commande Phallus)
 
 static uint8_t host_sk[64], host_pk[32];
 static bool server_ready;
@@ -588,11 +589,30 @@ int ssh_keygen_text(const char *user, char *out, int max) {
     out[o]=0; return o;
 }
 
-static int shell_exec_one(const char *user, const char *line, char *out, int outmax) {
+// Fastfetch texte (commande Phallus) : banniere « sexOs » + infos systeme.
+static int shell_fastfetch(const char *user, char *out, int max) {
+    int n = 0;
+    #define F(s) do { for (const char *q=(s); *q && n<max-1; q++) out[n++]=*q; } while(0)
+    for (int i = 0; i < SEXOS_BANNER_LINES; i++) { F(sexos_banner[i]); F("\n"); }
+    F("\n"); F(user); F("@sexos\n");
+    F("-----------------\n");
+    F("OS      : sexOs v2 (x86_64)\n");
+    F("Noyau   : sexos 2.0\n");
+    F("Shell   : ssh distant\n");
+    char b[24];
+    utoa(pit_ms() / 1000, b, 10); F("Uptime  : "); F(b); F(" s\n");
+    utoa(pmm_total_bytes() / (1024*1024), b, 10); F("Memoire : "); F(b); F(" Mio\n");
+    if (netif.up) { char ip[16]; ip_to_str(netif.ip, ip); F("IP      : "); F(ip); F("\n"); }
+    #undef F
+    return n;
+}
+
+// Exécute une commande. 'cwdpath' est le répertoire courant (modifié par cd).
+static int shell_exec_one(const char *user, char *cwdpath, const char *line, char *out, int outmax) {
     int n = 0;
     #define OUT(s) do { for (const char *q=(s); *q && n<outmax-1; q++) out[n++]=*q; } while(0)
     const user_t *u = find_user(user);
-    vfs_node_t *cwd = vfs_resolve(u ? u->home : "/"); if (!cwd) cwd = vfs_root();
+    vfs_node_t *cwd = vfs_resolve(cwdpath); if (!cwd) cwd = vfs_root();
 
     char cmd[64]; int i = 0;
     while (line[i] && line[i] != ' ' && i < 63) { cmd[i] = line[i]; i++; }
@@ -605,8 +625,25 @@ static int shell_exec_one(const char *user, const char *line, char *out, int out
     else if (strcmp(cmd, "uname") == 0) { OUT("sexOs 2.0 x86_64\n"); }
     else if (strcmp(cmd, "date") == 0) { rtc_time_t t; rtc_now(&t); char b[24]; rtc_format(&t,b); OUT(b); OUT("\n"); }
     else if (strcmp(cmd, "id") == 0) { OUT("user="); OUT(user); OUT(u && u->is_admin ? " (admin)\n" : " (standard)\n"); }
-    else if (strcmp(cmd, "help") == 0) { OUT("commandes: echo ls cat pwd whoami id uname date sysinfo about help\n"
-        "           hostkey pubkey pubkey-add ssh-keygen\n"); }
+    else if (strcmp(cmd, "help") == 0) { OUT("commandes: echo ls cd pwd cat clear whoami id uname date sysinfo about help\n"
+        "           Phallus hostkey pubkey pubkey-add ssh-keygen exit\n"); }
+    else if (strcmp(cmd, "clear") == 0) { OUT("\033[2J\033[H"); }
+    else if (strcmp(cmd, "Phallus") == 0 || strcmp(cmd, "phallus") == 0) { n += shell_fastfetch(user, out+n, outmax-n); }
+    else if (strcmp(cmd, "cd") == 0) {
+        char np[256];
+        if (!arg[0]) { strcpy(np, (u && u->home[0]) ? u->home : "/"); }
+        else if (strcmp(arg, "..") == 0) {
+            strcpy(np, cwdpath); int l = strlen(np);
+            while (l > 1 && np[l-1] != '/') l--;
+            if (l > 1) l--;
+            np[l ? l : 1] = 0; if (!l) { np[0] = '/'; np[1] = 0; }
+        }
+        else if (arg[0] == '/') strcpy(np, arg);
+        else { strcpy(np, cwdpath); if (strcmp(np, "/") != 0) strcat(np, "/"); strcat(np, arg); }
+        vfs_node_t *d = vfs_resolve(np);
+        if (d && d->type == VFS_DIR) strcpy(cwdpath, np);
+        else OUT("cd: dossier introuvable\n");
+    }
     else if (strcmp(cmd, "about") == 0) { OUT("sexOs v2 -- shell SSH distant\n  D\n  |\n  |\n  8\n"); }
     else if (strcmp(cmd, "sysinfo") == 0) {
         char b[24]; OUT("Memoire: "); utoa(pmm_total_bytes()/(1024*1024),b,10); OUT(b); OUT(" Mio\n");
@@ -617,9 +654,12 @@ static int shell_exec_one(const char *user, const char *line, char *out, int out
         else for (vfs_node_t *c=d->children; c; c=c->next) { OUT(c->name); if (c->type==VFS_DIR) OUT("/"); OUT("\n"); }
     }
     else if (strcmp(cmd, "cat") == 0) {
-        vfs_node_t *f = (arg[0]=='/') ? vfs_resolve(arg) : vfs_lookup(cwd,arg);
-        if (!f || f->type!=VFS_FILE) OUT("cat: introuvable\n");
-        else for (size_t k=0;k<f->size && n<outmax-1;k++) out[n++]=f->data[k];
+        if (!arg[0]) OUT("usage: cat <fichier>\n");
+        else {
+            vfs_node_t *f = (arg[0]=='/') ? vfs_resolve(arg) : vfs_lookup(cwd,arg);
+            if (!f || f->type!=VFS_FILE) OUT("cat: introuvable\n");
+            else for (size_t k=0;k<f->size && n<outmax-1;k++) out[n++]=f->data[k];
+        }
     }
     else if (strcmp(cmd, "hostkey") == 0) {
         // Clé publique d'hôte (à ajouter au known_hosts) + empreinte SHA256.
@@ -655,8 +695,9 @@ static int shell_exec_one(const char *user, const char *line, char *out, int out
     return n;
 }
 
-// Exécute une ligne en découpant sur ';' (plusieurs commandes).
-static int shell_exec(const char *user, const char *line, char *out, int outmax) {
+// Exécute une ligne en découpant sur ';' (plusieurs commandes). 'cwdpath' est le
+// répertoire courant, persistant et modifiable (cd) entre les commandes.
+static int shell_exec(const char *user, char *cwdpath, const char *line, char *out, int outmax) {
     int n = 0;
     char buf[512];
     const char *p = line;
@@ -666,10 +707,38 @@ static int shell_exec(const char *user, const char *line, char *out, int outmax)
         buf[i] = 0;
         if (*p == ';') p++;
         char *c = buf; while (*c == ' ') c++;
-        if (*c) n += shell_exec_one(user, c, out + n, outmax - n);
+        if (*c) n += shell_exec_one(user, cwdpath, c, out + n, outmax - n);
     }
     out[n] = 0;
     return n;
+}
+
+// Répertoire personnel d'un utilisateur (ou "/") dans buf.
+static void user_home(const char *user, char *buf) {
+    const user_t *u = find_user(user);
+    strcpy(buf, (u && u->home[0]) ? u->home : "/");
+}
+
+// Envoie 'buf' sur le canal en convertissant \n -> \r\n (terminal brut interactif).
+static bool ssh_send_crlf(ssh_t *s, uint32_t ch, const char *buf, int len) {
+    static uint8_t d[16384];
+    int o = 0; d[o++] = MSG_CHANNEL_DATA; wr32(d+o, ch); o += 4;
+    int lenpos = o; o += 4; int start = o;
+    for (int i = 0; i < len && o < (int)sizeof(d) - 2; i++) {
+        if (buf[i] == '\n') { d[o++] = '\r'; d[o++] = '\n'; }
+        else d[o++] = (uint8_t)buf[i];
+    }
+    wr32(d + lenpos, o - start);
+    return ssh_send(s, d, o);
+}
+
+// Envoie l'invite « sexos:<cwd>$ » sur le canal.
+static void ssh_send_prompt(ssh_t *s, uint32_t ch, const char *cwdpath) {
+    char pr[300]; int o = 0;
+    for (const char *q = "sexos:"; *q; q++) pr[o++] = *q;
+    for (const char *q = cwdpath; *q && o < 280; q++) pr[o++] = *q;
+    pr[o++] = '$'; pr[o++] = ' '; pr[o] = 0;
+    ssh_send_crlf(s, ch, pr, o);
 }
 
 // --- Handshake côté serveur --------------------------------------------------
@@ -833,7 +902,8 @@ static void ssh_server_session(ssh_t *s) {
                 uint32_t cl=rd32(p+q); q+=4; char command[512]; int cn=cl<511?cl:511; memcpy(command,p+q,cn); command[cn]=0;
                 if (want_reply) { uint8_t r[16]; o=0; r[o++]=MSG_CHANNEL_SUCCESS; wr32(r+o,client_ch); o+=4; ssh_send(s,r,o); }
                 static char obuf[8192];
-                int n = shell_exec(user, command, obuf, sizeof(obuf));
+                char cwdpath[256]; user_home(user, cwdpath);
+                int n = shell_exec(user, cwdpath, command, obuf, sizeof(obuf));
                 // CHANNEL_DATA
                 static uint8_t d[8300]; o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)obuf,n);
                 ssh_send(s,d,o);
@@ -846,14 +916,15 @@ static void ssh_server_session(ssh_t *s) {
                 return;
             } else if (strcmp(rt,"shell")==0) {
                 if (want_reply) { uint8_t r[16]; o=0; r[o++]=MSG_CHANNEL_SUCCESS; wr32(r+o,client_ch); o+=4; ssh_send(s,r,o); }
-                // Shell interactif minimal : invite, lecture ligne, execution.
+                // Shell interactif : invite, lecture ligne, execution. Le terminal
+                // distant est en mode brut -> les sorties sont converties \n -> \r\n.
                 const char *banner="sexOs shell distant. Tapez 'help'.\r\n";
                 static uint8_t d[8300];
                 o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)banner,strlen(banner)); ssh_send(s,d,o);
                 char linebuf[512]; int ll=0;
-                const char *prompt="sexos$ ";
-                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)prompt,strlen(prompt)); ssh_send(s,d,o);
-                for (int g=0; g<100000; g++) {
+                char cwdpath[256]; user_home(user, cwdpath);
+                ssh_send_prompt(s, client_ch, cwdpath);
+                for (int g=0; g<1000000; g++) {
                     if (!ssh_recv(s,p,&plen)) return;
                     if (p[0]==MSG_CHANNEL_DATA) {
                         uint32_t dl=rd32(p+5);
@@ -865,9 +936,9 @@ static void ssh_server_session(ssh_t *s) {
                                 if (strcmp(linebuf,"exit")==0) {
                                     o=0; d[o++]=MSG_CHANNEL_CLOSE; wr32(d+o,client_ch); o+=4; ssh_send(s,d,o); return;
                                 }
-                                static char ob[8192]; int n=shell_exec(user,linebuf,ob,sizeof(ob));
-                                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)ob,n); ssh_send(s,d,o);
-                                o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)prompt,strlen(prompt)); ssh_send(s,d,o);
+                                static char ob[8192]; int n=shell_exec(user,cwdpath,linebuf,ob,sizeof(ob));
+                                ssh_send_crlf(s, client_ch, ob, n);     // \n -> \r\n
+                                ssh_send_prompt(s, client_ch, cwdpath);
                                 ll=0;
                             } else if (ch==0x7f || ch==8) {     // backspace
                                 if (ll>0){ ll--; o=0; d[o++]=MSG_CHANNEL_DATA; wr32(d+o,client_ch); o+=4; o=put_bytes(d,o,(uint8_t*)"\b \b",3); ssh_send(s,d,o); }
