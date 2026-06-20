@@ -49,12 +49,15 @@ typedef struct { uint8_t second, minute, hour, day, month; uint16_t year; } rtct
 
 static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) { return ((uint32_t)r<<16)|((uint32_t)g<<8)|b; }
 
+static char *g_cap; static int g_caplen, g_capmax;   // redirection « > » : capture de la sortie
+
 static void scroll_up(void) {
     for (int y = 1; y < ROWS; y++) memcpy(cells[y-1], cells[y], COLS);
     memset(cells[ROWS-1], ' ', COLS);
     cy = ROWS - 1;
 }
 static void tputc(char ch) {
+    if (g_cap) { if (g_caplen < g_capmax - 1) g_cap[g_caplen++] = ch; return; }  // capture (redirection)
     if (ch == '\n') { cx = 0; if (++cy >= ROWS) scroll_up(); return; }
     if (cx >= COLS) { cx = 0; if (++cy >= ROWS) scroll_up(); }
     cells[cy][cx++] = ch;
@@ -168,13 +171,13 @@ static void cmd_sysinfo(void) {
     utoa(s.pci_count, n); tprint("PCI     : "); tprint(n); tprint(" peripheriques\n");
 }
 static void cmd_help(void) {
-    tprint("fichiers : ls cd pwd cat head tail wc grep find tree stat du\n");
-    tprint("           hexdump cp mv rm mkdir touch nano\n");
-    tprint("systeme  : help clear echo whoami id uname about date sysinfo\n");
-    tprint("           uptime free ps sleep cal history reboot Phallus\n");
-    tprint("reseau   : ip resolve <hote> ping <hote> curl <url> wget <url>\n");
-    tprint("ssh      : hostkey pubkey pubkey-add ssh-keygen\n");
-    tprint("fun      : cowsay <txt> cmatrix sex\n");
+    tprint("fichiers : ls cd pwd cat head tail wc grep find tree stat du hexdump\n");
+    tprint("           cp mv rm mkdir touch nano sort uniq rev   (echo ... > fichier)\n");
+    tprint("systeme  : help clear echo whoami id users su passwd uname about date\n");
+    tprint("           sysinfo uptime free df ps sleep cal seq calc base64 history reboot\n");
+    tprint("reseau   : ip resolve ping curl wget   ssh user@hote [cmd]\n");
+    tprint("cles ssh : hostkey pubkey pubkey-add ssh-keygen\n");
+    tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus\n");
     tprint("  fleche haut/bas : historique   ^C copier   ^V coller\n");
 }
 
@@ -812,11 +815,259 @@ static void cmd_sex(void) {
     memset(cells, ' ', sizeof cells); cx = cy = 0;
 }
 
+// Lit une ligne au clavier (boucle propre). secret=1 -> echo en '*'.
+static void read_input(const char *prompt, char *out, int max, int secret) {
+    tprint(prompt); redraw();
+    int n = 0;
+    for (;;) {
+        event_t ev; int r = win_wait(&ev);
+        if (r < 0) sys_exit(0);
+        if (ev.type != EV_KEY || !ev.pressed) continue;
+        if (ev.key == KEY_ENTER) { tputc('\n'); break; }
+        else if (ev.key == KEY_BACKSPACE) { if (n > 0) { n--; if (cx > 0) { cx--; cells[cy][cx] = ' '; } } }
+        else if (ev.ch && n < max-1) { out[n++] = ev.ch; tputc(secret ? '*' : ev.ch); }
+        redraw();
+    }
+    out[n] = 0;
+}
+static int s2i(const char *s) { int v=0, sg=1; if (*s=='-'){sg=-1;s++;} while (*s>='0'&&*s<='9'){v=v*10+(*s-'0');s++;} return v*sg; }
+static void put_int(long r) { char b[24]; if (r<0){tprint("-");utoa((unsigned long)(-r),b);} else utoa((unsigned long)r,b); tprint(b); }
+
+// --- Comptes & privileges ----------------------------------------------------
+static void cmd_users(void) {
+    userinfo_t u; int i = 0;
+    while (sys_users_list(i++, &u) == 1) { tprint(u.name); tprint(u.is_admin ? "  (admin)     " : "  (standard)  "); tprint(u.home); tprint("\n"); }
+}
+static void cmd_su(const char *arg) {
+    char name[32]; if (arg[0]) next_tok(arg, name, sizeof name); else strcpy(name, "root");
+    char pw[64]; read_input("mot de passe: ", pw, sizeof pw, 1);
+    if (sys_login(name, pw) == 0) { tprint("connecte en tant que "); tprint(name); tprint("\n"); }
+    else tprint("su: authentification refusee\n");
+}
+static void cmd_passwd(void) {
+    char oldp[64], n1[64], n2[64];
+    read_input("ancien mot de passe : ", oldp, sizeof oldp, 1);
+    read_input("nouveau mot de passe: ", n1, sizeof n1, 1);
+    read_input("confirmer           : ", n2, sizeof n2, 1);
+    if (strcmp(n1, n2) != 0) { tprint("les mots de passe ne correspondent pas\n"); return; }
+    tprint(sys_passwd(oldp, n1) == 0 ? "mot de passe change\n" : "echec (ancien mot de passe incorrect ?)\n");
+}
+
+// --- calc : evaluateur arithmetique (+ - * / parentheses) --------------------
+static const char *g_cp;
+static long p_expr(void);
+static long p_factor(void) {
+    while (*g_cp==' ') g_cp++;
+    if (*g_cp=='(') { g_cp++; long v=p_expr(); while(*g_cp==' ')g_cp++; if(*g_cp==')')g_cp++; return v; }
+    if (*g_cp=='-') { g_cp++; return -p_factor(); }
+    long v=0; while (*g_cp>='0'&&*g_cp<='9'){ v=v*10+(*g_cp-'0'); g_cp++; } return v;
+}
+static long p_term(void) {
+    long v=p_factor();
+    for (;;) { while(*g_cp==' ')g_cp++; char o=*g_cp;
+        if (o=='*'){g_cp++; v*=p_factor();} else if(o=='/'){g_cp++; long d=p_factor(); v=d?v/d:0;} else break; }
+    return v;
+}
+static long p_expr(void) {
+    long v=p_term();
+    for (;;) { while(*g_cp==' ')g_cp++; char o=*g_cp;
+        if (o=='+'){g_cp++; v+=p_term();} else if(o=='-'){g_cp++; v-=p_term();} else break; }
+    return v;
+}
+static void cmd_calc(const char *arg) {
+    if (!arg[0]) { tprint("usage: calc <expression>\n"); return; }
+    g_cp = arg; long r = p_expr(); put_int(r); tprint("\n");
+}
+
+// --- base64 [-d] <texte> -----------------------------------------------------
+static const char B64T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+static void cmd_base64(const char *arg) {
+    int dec = 0; const char *s = arg;
+    if (strncmp(arg, "-d ", 3) == 0) { dec = 1; s = arg+3; while (*s==' ') s++; }
+    if (!*s) { tprint("usage: base64 [-d] <texte>\n"); return; }
+    if (!dec) {
+        int n = (int)strlen(s);
+        for (int i = 0; i < n; i += 3) {
+            int r = n-i; unsigned v = (unsigned char)s[i]<<16;
+            if (r>1) v |= (unsigned char)s[i+1]<<8;
+            if (r>2) v |= (unsigned char)s[i+2];
+            char o[5]; o[0]=B64T[(v>>18)&63]; o[1]=B64T[(v>>12)&63];
+            o[2]=r>1?B64T[(v>>6)&63]:'='; o[3]=r>2?B64T[v&63]:'='; o[4]=0; tprint(o);
+        }
+        tprint("\n");
+    } else {
+        unsigned buf=0; int bits=0;
+        for (const char *p=s; *p; p++) {
+            int val=-1; char c=*p;
+            if(c>='A'&&c<='Z')val=c-'A'; else if(c>='a'&&c<='z')val=c-'a'+26;
+            else if(c>='0'&&c<='9')val=c-'0'+52; else if(c=='+')val=62; else if(c=='/')val=63; else continue;
+            buf=(buf<<6)|val; bits+=6;
+            if (bits>=8){ bits-=8; char s2[2]={(char)((buf>>bits)&0xFF),0}; tprint(s2); }
+        }
+        tprint("\n");
+    }
+}
+
+// --- sort / uniq / rev (sur un fichier) --------------------------------------
+static int split_lines(const char *arg, char *lines[], int maxlines) {
+    char path[256]; build_abs(arg, path);
+    vfs_io_t io = { path, 0, fscratch, sizeof fscratch - 1 };
+    long n = sys_vfs_read(&io); if (n < 0) return -1;
+    fscratch[n] = 0; int nl = 0; char *p = fscratch;
+    while (*p && nl < maxlines) { lines[nl++] = p; while (*p && *p != '\n') p++; if (*p) { *p = 0; p++; } }
+    return nl;
+}
+static char *g_lines[1024];
+static void cmd_sort(const char *arg) {
+    if (!arg[0]) { tprint("usage: sort <fichier>\n"); return; }
+    int nl = split_lines(arg, g_lines, 1024); if (nl < 0) { tprint("sort: introuvable\n"); return; }
+    for (int i = 1; i < nl; i++) { char *k = g_lines[i]; int j = i-1; while (j>=0 && strcmp(g_lines[j],k)>0){g_lines[j+1]=g_lines[j];j--;} g_lines[j+1]=k; }
+    for (int i = 0; i < nl; i++) { tprint(g_lines[i]); tprint("\n"); }
+}
+static void cmd_uniq(const char *arg) {
+    if (!arg[0]) { tprint("usage: uniq <fichier>\n"); return; }
+    int nl = split_lines(arg, g_lines, 1024); if (nl < 0) { tprint("uniq: introuvable\n"); return; }
+    for (int i = 0; i < nl; i++) if (i==0 || strcmp(g_lines[i], g_lines[i-1])!=0) { tprint(g_lines[i]); tprint("\n"); }
+}
+static void cmd_rev(const char *arg) {
+    if (!arg[0]) { tprint("usage: rev <fichier>\n"); return; }
+    int nl = split_lines(arg, g_lines, 1024); if (nl < 0) { tprint("rev: introuvable\n"); return; }
+    for (int i = 0; i < nl; i++) { int l=(int)strlen(g_lines[i]); for (int j=l-1;j>=0;j--){ char s[2]={g_lines[i][j],0}; tprint(s);} tprint("\n"); }
+}
+static void cmd_df(void) {
+    unsigned long used = du_rec("/"); sysinfo_t si; sys_sysinfo(&si); char b[16];
+    tprint("Systeme de fichiers (en memoire)\n");
+    utoa(used, b); tprint("  fichiers : "); tprint(b); tprint(" octets\n");
+    utoa(si.mem_used_mb, b); tprint("  RAM      : "); tprint(b); tprint(" / ");
+    utoa(si.mem_total_mb, b); tprint(b); tprint(" Mio\n");
+}
+static void cmd_seq(const char *arg) {
+    char t1[16], t2[16]; const char *p = next_tok(arg, t1, sizeof t1); next_tok(p, t2, sizeof t2);
+    int a, b; if (t2[0]) { a = s2i(t1); b = s2i(t2); } else { a = 1; b = s2i(t1); }
+    char bb[12]; for (int i = a; i <= b && i < a + 5000; i++) { utoa(i, bb); tprint(bb); tprint("\n"); }
+}
+
+// --- figlet / fortune (fun) --------------------------------------------------
+static void cmd_figlet(const char *arg) {
+    const char *t = arg[0] ? arg : "sexOs";
+    canvas_fill(cv, rgb(0x0c,0x10,0x14));
+    int sc = 6, tw = canvas_text_width(t, sc);
+    while (tw > cv->width - 8 && sc > 1) { sc--; tw = canvas_text_width(t, sc); }
+    canvas_draw_string(cv, t, (cv->width - tw)/2, cv->height/2 - 8*sc, rgb(0x6e,0xe7,0x9a), sc);
+    canvas_draw_string(cv, "(touche pour quitter)", 8, cv->height - 16, rgb(0x8a,0x98,0xa6), 1);
+    win_damage();
+    for (;;) { event_t e; int r = win_wait(&e); if (r < 0) sys_exit(0); if (e.type==EV_KEY && e.pressed) break; }
+    memset(cells, ' ', sizeof cells); cx = cy = 0;
+}
+static const char *fortunes[] = {
+    "La RAM est volatile, l'amour aussi.",
+    "Un bon programmeur regarde des deux cotes avant de traverser une voie a sens unique.",
+    "Il y a 10 sortes de gens : ceux qui comptent en binaire et les autres.",
+    "sudo make moi un cafe.",
+    "Le seul bug qui marche du premier coup est celui que tu n'as pas encore trouve.",
+    "rm -rf / : ne le fais jamais. Vraiment.",
+    "On ne debogue pas, on ajoute des kprintf.",
+    "Le reseau est en panne ? As-tu essaye de l'eteindre et de le rallumer ?",
+};
+static void cmd_fortune(void) {
+    g_rng = (unsigned)sys_time_ms() | 1u;
+    int n = (int)(sizeof fortunes / sizeof fortunes[0]);
+    tprint(fortunes[rnd() % n]); tprint("\n");
+}
+
+// --- snake (jeu, fleches pour diriger) ---------------------------------------
+static void cmd_snake(void) {
+    int sx[256], sy[256], len = 4, dx = 1, dy = 0;
+    for (int i = 0; i < len; i++) { sx[i] = COLS/2 - i; sy[i] = ROWS/2; }
+    g_rng = (unsigned)sys_time_ms() | 1u;
+    int fx = rnd()%COLS, fy = 1 + rnd()%(ROWS-1), score = 0, dead = 0;
+    for (;;) {
+        event_t e;
+        while (win_poll(&e)) if (e.type==EV_KEY && e.pressed) {
+            if (e.key==KEY_UP && dy==0) { dx=0; dy=-1; }
+            else if (e.key==KEY_DOWN && dy==0) { dx=0; dy=1; }
+            else if (e.key==KEY_LEFT && dx==0) { dx=-1; dy=0; }
+            else if (e.key==KEY_RIGHT && dx==0) { dx=1; dy=0; }
+            else if (e.key==KEY_ESC || e.ch=='q') dead = 2;
+        }
+        if (dead) break;
+        int nx = sx[0]+dx, ny = sy[0]+dy;
+        if (nx<0 || nx>=COLS || ny<1 || ny>=ROWS) { dead = 1; break; }
+        for (int i = 0; i < len; i++) if (sx[i]==nx && sy[i]==ny) dead = 1;
+        if (dead) break;
+        int grow = (nx==fx && ny==fy);
+        for (int i = len; i > 0; i--) { sx[i]=sx[i-1]; sy[i]=sy[i-1]; }
+        sx[0]=nx; sy[0]=ny;
+        if (grow) { if (len<255) len++; score++; fx=rnd()%COLS; fy=1+rnd()%(ROWS-1); }
+        memset(cells, ' ', sizeof cells);
+        char b[48]; strcpy(b, "Snake  score: "); char nn[8]; utoa(score, nn); strcat(b, nn); strcat(b, "   (fleches, q=quitter)");
+        for (int i = 0; b[i] && i < COLS; i++) cells[0][i] = b[i];
+        for (int i = 0; i < len; i++) if (sy[i]>=0 && sy[i]<ROWS && sx[i]>=0 && sx[i]<COLS) cells[sy[i]][sx[i]] = (i==0)?'@':'o';
+        cells[fy][fx] = '*';
+        cx = COLS-1; cy = ROWS-1; redraw();
+        uint64_t t = sys_time_ms(); while (sys_time_ms()-t < 110) sys_yield();
+    }
+    if (dead == 1) {
+        const char *m = "  PERDU !  (touche pour quitter)";
+        for (int i = 0; m[i] && i < COLS; i++) cells[ROWS/2][i] = m[i];
+        redraw();
+        for (;;) { event_t e; int r = win_wait(&e); if (r<0) sys_exit(0); if (e.type==EV_KEY && e.pressed) break; }
+    }
+    memset(cells, ' ', sizeof cells); cx = cy = 0;
+}
+
+// --- ssh : client SSH (se connecter vers une autre machine) ------------------
+static char ssh_out[32768];
+static void cmd_ssh(const char *arg) {
+    if (!arg[0]) { tprint("usage: ssh user@hote [commande]\n"); return; }
+    char target[128]; const char *rest = next_tok(arg, target, sizeof target); while (*rest==' ') rest++;
+    int at = -1; for (int i = 0; target[i]; i++) if (target[i]=='@') { at = i; break; }
+    if (at < 0) { tprint("format attendu : user@hote\n"); return; }
+    char user[64], host[128]; int k = 0;
+    for (int i = 0; i < at && k < 63; i++) user[k++] = target[i];
+    user[k] = 0; k = 0;
+    for (int i = at+1; target[i] && k < 127; i++) host[k++] = target[i];
+    host[k] = 0;
+    uint32_t ip;
+    if (!parse_ip(host, &ip)) {
+        int r = 0; uint64_t end = sys_time_ms() + 5000;
+        do { r = sys_dns_resolve(host, &ip); if (r==0) sys_yield(); } while (r==0 && sys_time_ms() < end);
+        if (r != 1) { tprint("ssh: hote introuvable\n"); return; }
+    }
+    char pw[64]; read_input("mot de passe: ", pw, sizeof pw, 1);
+    sshreq_t req = { ip, 22, user, pw, "", ssh_out, sizeof ssh_out - 1 };
+    if (rest[0]) {
+        req.command = rest;
+        int n = sys_ssh_exec(&req);
+        if (n < 0) { tprint("ssh: echec (connexion / authentification ?)\n"); return; }
+        ssh_out[n] = 0; tprint(ssh_out); if (n>0 && ssh_out[n-1]!='\n') tprint("\n");
+    } else {
+        tprint("connecte. Tapez des commandes ('exit' pour quitter).\n");
+        for (;;) {
+            char line[256], prompt[200];
+            strcpy(prompt, user); strcat(prompt, "@"); strcat(prompt, host); strcat(prompt, "$ ");
+            read_input(prompt, line, sizeof line, 0);
+            if (strcmp(line, "exit") == 0) break;
+            if (!line[0]) continue;
+            req.command = line;
+            int n = sys_ssh_exec(&req);
+            if (n < 0) { tprint("(echec)\n"); continue; }
+            ssh_out[n] = 0; tprint(ssh_out); if (n>0 && ssh_out[n-1]!='\n') tprint("\n");
+        }
+    }
+}
+
+static char g_capbuf[16384];
 static void run(char *line) {
+    // Redirection « > fichier » : capture la sortie de la commande vers un fichier.
+    char *redir = 0;
+    for (char *q = line; *q; q++) if (*q == '>') { *q = 0; redir = q+1; while (*redir==' ') redir++; break; }
+    if (redir && *redir) { g_cap = g_capbuf; g_caplen = 0; g_capmax = sizeof g_capbuf; }
+
     char *cmd = line, *arg = line;
     while (*arg && *arg != ' ') arg++;
     if (*arg) { *arg = 0; arg++; while (*arg == ' ') arg++; }
-    if (!cmd[0]) return;
+    if (!cmd[0]) { g_cap = 0; return; }
     else if (!strcmp(cmd, "help")) cmd_help();
     else if (!strcmp(cmd, "clear")) { memset(cells, ' ', sizeof cells); cx = cy = 0; }
     else if (!strcmp(cmd, "echo")) { tprint(arg); tprint("\n"); }
@@ -864,8 +1115,32 @@ static void run(char *line) {
     else if (!strcmp(cmd, "pubkey")) cmd_pubkey();
     else if (!strcmp(cmd, "pubkey-add")) cmd_pubkey_add(arg);
     else if (!strcmp(cmd, "ssh-keygen")) cmd_keygen();
+    else if (!strcmp(cmd, "ssh")) cmd_ssh(arg);
     else if (!strcmp(cmd, "nano") || !strcmp(cmd, "edit")) cmd_nano(arg);
+    else if (!strcmp(cmd, "users")) cmd_users();
+    else if (!strcmp(cmd, "su")) cmd_su(arg);
+    else if (!strcmp(cmd, "passwd")) cmd_passwd();
+    else if (!strcmp(cmd, "calc")) cmd_calc(arg);
+    else if (!strcmp(cmd, "base64")) cmd_base64(arg);
+    else if (!strcmp(cmd, "sort")) cmd_sort(arg);
+    else if (!strcmp(cmd, "uniq")) cmd_uniq(arg);
+    else if (!strcmp(cmd, "rev")) cmd_rev(arg);
+    else if (!strcmp(cmd, "df")) cmd_df();
+    else if (!strcmp(cmd, "seq")) cmd_seq(arg);
+    else if (!strcmp(cmd, "figlet") || !strcmp(cmd, "banner")) cmd_figlet(arg);
+    else if (!strcmp(cmd, "fortune")) cmd_fortune();
+    else if (!strcmp(cmd, "snake")) cmd_snake();
     else { tprint(cmd); tprint(": commande inconnue\n"); }
+
+    // Fin de redirection : ecrit la sortie capturee dans le fichier.
+    if (g_cap) {
+        g_cap = 0; g_capbuf[g_caplen] = 0;
+        if (redir && *redir) {
+            char path[256]; build_abs(redir, path);
+            dirent_t e; if (sys_vfs_stat(path, &e) != 0) sys_vfs_create(path, 0);
+            vfs_io_t io = { path, 0, g_capbuf, (uint64_t)g_caplen }; sys_vfs_save(&io);
+        }
+    }
 }
 
 int main(void) {

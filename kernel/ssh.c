@@ -315,10 +315,19 @@ static int ssh_auth_password(ssh_t *s, const char *user, const char *password) {
 int ssh_client_exec(ip4_t ip, uint16_t port, const char *user, const char *password,
                     const char *command, char *out, int outmax) {
     static ssh_t s; memset(&s,0,sizeof(s));
-    s.conn = tcp_connect(ip, port);
+    // Connexion NON BLOQUANTE (la tâche réseau possède le NIC) : on ouvre puis on
+    // attend l'établissement en cédant le CPU, comme le serveur.
+    __asm__ volatile ("cli"); s.conn = tcp_open(ip, port); __asm__ volatile ("sti");
     if (s.conn < 0) { kprintf("[ssh] connexion echec\n"); return -1; }
-    if (ssh_handshake(&s) != 0) { tcp_close(s.conn); return -1; }
-    if (ssh_auth_password(&s, user, password) != 0) { tcp_close(s.conn); return -1; }
+    { uint64_t end = pit_ms() + 8000;
+      for (;;) {
+          __asm__ volatile ("cli"); int st = tcp_state(s.conn); __asm__ volatile ("sti");
+          if (st == 1) break;                          // établi
+          if (st < 0 || pit_ms() > end) { __asm__ volatile ("cli"); tcp_shutdown(s.conn); __asm__ volatile ("sti"); kprintf("[ssh] connexion impossible\n"); return -1; }
+          __asm__ volatile ("hlt");
+      } }
+    if (ssh_handshake(&s) != 0) { __asm__ volatile ("cli"); tcp_shutdown(s.conn); __asm__ volatile ("sti"); return -1; }
+    if (ssh_auth_password(&s, user, password) != 0) { __asm__ volatile ("cli"); tcp_shutdown(s.conn); __asm__ volatile ("sti"); return -1; }
 
     // Ouverture du canal "session".
     uint8_t req[1024]; int o=0;
@@ -328,7 +337,7 @@ int ssh_client_exec(ip4_t ip, uint16_t port, const char *user, const char *passw
     wr32(req+o,0x4000); o+=4;        // taille max de paquet
     ssh_send(&s,req,o);
     int plen; static uint8_t p[PKT_SZ];     // hors pile (16 Kio seulement)
-    if (!ssh_recv_useful(&s,p,&plen) || p[0]!=MSG_CHANNEL_OPEN_CONFIRMATION) { kprintf("[ssh] ouverture canal echec\n"); tcp_close(s.conn); return -1; }
+    if (!ssh_recv_useful(&s,p,&plen) || p[0]!=MSG_CHANNEL_OPEN_CONFIRMATION) { kprintf("[ssh] ouverture canal echec\n"); __asm__ volatile ("cli"); tcp_shutdown(s.conn); __asm__ volatile ("sti"); return -1; }
     uint32_t remote_ch = rd32(p+5);
 
     // Demande "exec".
@@ -355,7 +364,7 @@ int ssh_client_exec(ip4_t ip, uint16_t port, const char *user, const char *passw
         // (CHANNEL_REQUEST exit-status, WINDOW_ADJUST, SUCCESS : ignorés)
     }
     out[total]=0;
-    tcp_close(s.conn);
+    __asm__ volatile ("cli"); tcp_shutdown(s.conn); __asm__ volatile ("sti");
     return total;
 }
 

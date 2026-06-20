@@ -70,6 +70,10 @@ static inline int  sys_clip_set(const void *b, int n) { return (int)_sc2(SYS_cli
 static inline int  sys_clip_get(void *b, int n)       { return (int)_sc2(SYS_clip_get, (long)b, n); }
 static inline void sys_whoami(userinfo_t *u)    { _sc1(SYS_whoami, (long)u); }
 static inline int  sys_can_write(const char *p) { return (int)_sc1(SYS_can_write, (long)p); }
+static inline int  sys_users_list(int i, userinfo_t *u) { return (int)_sc2(SYS_users_list, i, (long)u); }
+static inline int  sys_login(const char *name, const char *pw) { return (int)_sc2(SYS_login, (long)name, (long)pw); }
+static inline int  sys_passwd(const char *oldpw, const char *newpw) { return (int)_sc2(SYS_passwd, (long)oldpw, (long)newpw); }
+static inline int  sys_ssh_exec(sshreq_t *r)    { return (int)_sc1(SYS_ssh_exec, (long)r); }
 static inline void sys_rtc(void *t)             { _sc1(SYS_rtc_now, (long)t); }
 static inline void sys_sysinfo(void *s)         { _sc1(SYS_sysinfo, (long)s); }
 static inline int  sys_proc_list(int i, procinfo_t *p) { return (int)_sc2(SYS_proc_list, i, (long)p); }

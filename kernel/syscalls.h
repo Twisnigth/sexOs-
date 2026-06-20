@@ -80,6 +80,19 @@
 // --- Comptes / permissions ---------------------------------------------------
 #define SYS_whoami      0x240      // (*userinfo)
 #define SYS_can_write   0x241      // (path) -> 1/0
+#define SYS_users_list  0x242      // (index, *userinfo) -> 1=rempli / 0=fin
+#define SYS_login       0x243      // (nom, mot_de_passe) -> 0=ok / -1 (change l'utilisateur courant)
+#define SYS_passwd      0x244      // (ancien, nouveau) -> 0=ok / -1
+
+// --- Client SSH (se connecter vers une autre machine) ------------------------
+#define SYS_ssh_exec    0x27c      // (sshreq_t*) -> taille de la sortie / -1
+
+// Requête de client SSH (SYS_ssh_exec) : exécute 'command' sur ip:port.
+typedef struct {
+    uint32_t    ip; uint16_t port;
+    const char *user, *password, *command;
+    char       *out; int outmax;
+} sshreq_t;
 
 typedef struct { char name[64]; uint32_t type; uint64_t size; } dirent_t;  // type: 0=fichier 1=dossier
 typedef struct { const char *path; uint64_t off; void *buf; uint64_t len; } vfs_io_t;

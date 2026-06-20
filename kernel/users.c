@@ -53,6 +53,15 @@ const user_t *users_authenticate(const char *name, const char *password) {
 
 void users_set_current(const user_t *u) { current = u; }
 const user_t *users_current(void) { return current; }
+
+// Change le mot de passe de l'utilisateur courant après vérification de l'ancien.
+bool users_change_password(const char *oldpw, const char *newpw) {
+    if (!current) return false;
+    if (current->pass_hash != hash_pw(oldpw)) return false;
+    for (int i = 0; i < user_count; i++)
+        if (&users[i] == current) { users[i].pass_hash = hash_pw(newpw); return true; }
+    return false;
+}
 bool users_is_admin(void) { return current && current->is_admin; }
 bool users_can_admin(void) { return users_is_admin(); }
 

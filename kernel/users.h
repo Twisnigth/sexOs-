@@ -26,6 +26,7 @@ const user_t *users_authenticate(const char *name, const char *password);
 void          users_set_current(const user_t *u);
 const user_t *users_current(void);
 bool          users_is_admin(void);
+bool          users_change_password(const char *oldpw, const char *newpw);
 
 // Politique de privilèges.
 bool users_can_admin(void);                  // actions système réservées admin

@@ -496,6 +496,26 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_can_write:
         return users_can_write_path((const char *)a->rdi) ? 1 : 0;
+    case SYS_users_list: {
+        const user_t *cu = users_get((int)a->rdi);
+        if (!cu) return 0;
+        userinfo_t *u = (userinfo_t *)a->rsi;
+        if (u) { strncpy(u->name, cu->name, 31); u->name[31] = 0;
+                 strncpy(u->home, cu->home, 95); u->home[95] = 0; u->is_admin = cu->is_admin ? 1 : 0; }
+        return 1;
+    }
+    case SYS_login: {
+        const user_t *u = users_authenticate((const char *)a->rdi, (const char *)a->rsi);
+        if (!u) return -1;
+        users_set_current(u);
+        return 0;
+    }
+    case SYS_passwd:
+        return users_change_password((const char *)a->rdi, (const char *)a->rsi) ? 0 : -1;
+    case SYS_ssh_exec: {
+        sshreq_t *r = (sshreq_t *)a->rdi;
+        return ssh_client_exec(r->ip, r->port, r->user, r->password, r->command, r->out, r->outmax);
+    }
     default:
         kprintf("[sys] non gere : num=%u\n", a->rax);
         return -38;                                     // -ENOSYS

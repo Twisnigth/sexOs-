@@ -16,16 +16,20 @@
 // -----------------------------------------------------------------------------
 //  Tables scancode (jeu 1) -> ASCII, disposition AZERTY (cf. OS legacy)
 // -----------------------------------------------------------------------------
+//  Disposition AZERTY simplifiee. Les chiffres sont en direct (rangee du haut
+//  NON shiftee) ; la rangee shiftee fournit les symboles style US (@ # ( ) ...),
+//  et les touches « [ ] ' ` \ » US deviennent < > ' ` \ (et { } " ~ | shiftees)
+//  pour rendre @, (), <>, |, ~ saisissables (ssh user@hote, calc, redirection >).
 static const char keymap[0x3A] = {
     0,0, '1','2','3','4','5','6','7','8','9','0','-','=', '\b', 0,
-    'a','z','e','r','t','y','u','i','o','p', 0,0, '\n', 0,
-    'q','s','d','f','g','h','j','k','l','m', 0,0, 0, 0,
+    'a','z','e','r','t','y','u','i','o','p', '<','>', '\n', 0,
+    'q','s','d','f','g','h','j','k','l','m', '\'','`', 0, '\\',
     'w','x','c','v','b','n', ',',';',':','!', 0, '*', 0, ' '
 };
 static const char keymap_shift[0x3A] = {
-    0,0, '1','2','3','4','5','6','7','8','9','0','_','+', '\b', 0,
-    'A','Z','E','R','T','Y','U','I','O','P', 0,0, '\n', 0,
-    'Q','S','D','F','G','H','J','K','L','M', 0,0, 0, 0,
+    0,0, '!','@','#','$','%','^','&','*','(',')','_','+', '\b', 0,
+    'A','Z','E','R','T','Y','U','I','O','P', '{','}', '\n', 0,
+    'Q','S','D','F','G','H','J','K','L','M', '"','~', 0, '|',
     'W','X','C','V','B','N', '?','.','/','!', 0, '*', 0, ' '
 };
 
