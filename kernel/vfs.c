@@ -201,6 +201,27 @@ void vfs_init(void) {
     f = vfs_create(docs, "lisez-moi.sex", VFS_FILE);
     vfs_set_contents(f, "sexOs est un systeme d'exploitation pedagogique ecrit en C et assembleur.\n");
 
+    // Mini-site d'exemple servi par httpd : http://<ip>/site/
+    vfs_node_t *site = vfs_create(user, "site", VFS_DIR);
+    f = vfs_create(site, "index.html", VFS_FILE);
+    vfs_set_contents(f,
+        "<!doctype html><html lang=fr><head><meta charset=utf-8>"
+        "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+        "<title>Mon site sexOs</title><style>"
+        "body{margin:0;font-family:system-ui,monospace;background:#0f1320;color:#e6ecf2}"
+        ".hero{padding:60px 24px;text-align:center;background:linear-gradient(135deg,#1a1030,#102030)}"
+        "h1{font-size:42px;margin:0;color:#ff7ab0}p{color:#9aa6b4}"
+        ".card{max-width:680px;margin:24px auto;padding:20px;background:#161b2b;border:1px solid #2d3446;border-radius:10px}"
+        "a{color:#6ee79a}code{background:#0b0e16;padding:2px 6px;border-radius:4px;color:#7cf06a}</style></head><body>"
+        "<div class=hero><h1>Bienvenue sur sexOs</h1>"
+        "<p>Ce site est servi par le serveur web du noyau (httpd), depuis la RAM.</p></div>"
+        "<div class=card><h2>C'est en direct !</h2>"
+        "<p>Cette page est dans <code>/home/user/site/index.html</code>.</p>"
+        "<p>Modifie-la avec <code>nano site/index.html</code> dans le terminal, "
+        "puis recharge la page.</p>"
+        "<p>Retour a l'explorateur de fichiers : <a href=\"/\">/</a></p></div>"
+        "</body></html>\n");
+
     vfs_node_t *sys = vfs_create(root, "systeme", VFS_DIR);
     f = vfs_create(sys, "version.sex", VFS_FILE);
     vfs_set_contents(f, "sexOs version 2.0\nNoyau x86_64, demarrage UEFI/BIOS via Limine.\n");

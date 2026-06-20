@@ -91,6 +91,14 @@ void httpd_run(void) {
             B("<!doctype html><meta charset=utf-8><body style='background:#11141f;color:#d0e0d0;font-family:monospace'>");
             B("<h1 style='color:#ff7ab0'>404</h1><p>Fichier introuvable sur sexOs.</p>");
         } else if (node->type == VFS_DIR) {
+          // Si le dossier contient index.html, on le sert comme page d'accueil.
+          vfs_node_t *idx = NULL;
+          for (vfs_node_t *ch = node->children; ch; ch = ch->next)
+              if (ch->type == VFS_FILE && strcmp(ch->name, "index.html") == 0) { idx = ch; break; }
+          if (idx) {
+            int r = vfs_read(idx, 0, body, sizeof(body) - 1);
+            blen = (r < 0) ? 0 : r; ct = "text/html; charset=utf-8";
+          } else {
             B("<!doctype html><html><head><meta charset=utf-8><title>sexOs</title><style>");
             B("body{background:#11141f;color:#d0e0d0;font-family:monospace;padding:24px}");
             B("a{color:#6ee79a;text-decoration:none}a:hover{text-decoration:underline}");
@@ -105,6 +113,7 @@ void httpd_run(void) {
                 B("\">"); B(ch->name); if (ch->type == VFS_DIR) B("/"); B("</a></li>");
             }
             B("</ul><hr><p style='color:#8a98a6'>servi par sexOs httpd</p></body></html>");
+          }
         } else {
             int r = vfs_read(node, 0, body, sizeof(body) - 1);
             blen = (r < 0) ? 0 : r;
