@@ -48,8 +48,9 @@
 #define SYS_proc_list   0x253      // (index, *procinfo) -> 1=rempli / 0=au-delà
 
 // --- Système -----------------------------------------------------------------
-#define SYS_reboot      0x260      // redémarre la machine
+#define SYS_reboot      0x260      // redémarre la machine (sauvegarde le disque avant)
 #define SYS_beep        0x261      // (freq_hz, duree_ms) : bip haut-parleur PC
+#define SYS_sync        0x262      // ecrit le systeme de fichiers sur le disque -> 0/-1
 
 // --- Réseau : sockets TCP NON BLOQUANTES + DNS (pour le navigateur ring 3) ----
 #define SYS_net_info    0x270      // (*netinfo_t) -> 0

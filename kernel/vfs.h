@@ -28,6 +28,7 @@ typedef struct vfs_node {
 
 void        vfs_init(void);
 vfs_node_t *vfs_root(void);
+void        vfs_reset(void);   // efface toute l'arborescence (avant restauration disque)
 
 vfs_node_t *vfs_lookup(vfs_node_t *dir, const char *name);
 vfs_node_t *vfs_create(vfs_node_t *dir, const char *name, vfs_type_t type);

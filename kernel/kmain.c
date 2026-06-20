@@ -33,6 +33,7 @@
 #include "ssh.h"
 #include "httpd.h"
 #include "speaker.h"
+#include "fs.h"
 #include "proc.h"
 #include "pkg.h"
 #include "sched.h"
@@ -217,6 +218,7 @@ void kmain(void) {
 
     // --- VFS + comptes côté NOYAU (partagés par sshd, pacman ET le bureau) ---
     vfs_init();
+    fs_init();               // restaure l'arborescence depuis le disque si present
     users_init();
     // Session par défaut (la connexion en multi-processus n'est pas encore câblée).
     for (int i = 0; i < users_count(); i++)

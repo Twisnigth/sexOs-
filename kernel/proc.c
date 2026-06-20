@@ -26,6 +26,7 @@
 #include "crypto.h"
 #include "ssh.h"
 #include "speaker.h"
+#include "fs.h"
 
 // Registres transmis par syscall_entry (ordre identique à l'empilement asm).
 typedef struct {
@@ -294,8 +295,11 @@ long syscall_dispatch(sysargs_t *a) {
         return 0;
     }
     case SYS_reboot:
+        fs_save();                                  // sauvegarde avant de redemarrer
         outb(0x64, 0xFE);
         return 0;
+    case SYS_sync:
+        return fs_save();
     case SYS_beep:
         // beep() attend via pit_sleep_ms (hlt) : il FAUT les interruptions
         // (l'entree syscall les masque, FMASK). On les reactive le temps du bip.

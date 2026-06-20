@@ -174,7 +174,7 @@ static void cmd_help(void) {
     tprint("fichiers : ls cd pwd cat head tail wc grep find tree stat du hexdump\n");
     tprint("           cp mv rm mkdir touch nano sort uniq rev   (echo ... > fichier)\n");
     tprint("systeme  : help clear echo whoami id users su passwd uname about date\n");
-    tprint("           sysinfo uptime free df ps sleep cal seq calc base64 history reboot\n");
+    tprint("           sysinfo uptime free df sync ps sleep cal seq calc base64 history reboot\n");
     tprint("reseau   : ip resolve ping curl wget   ssh user@hote [cmd]\n");
     tprint("cles ssh : hostkey pubkey pubkey-add ssh-keygen\n");
     tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus beep play\n");
@@ -954,10 +954,16 @@ static void cmd_rev(const char *arg) {
 }
 static void cmd_df(void) {
     unsigned long used = du_rec("/"); sysinfo_t si; sys_sysinfo(&si); char b[16];
-    tprint("Systeme de fichiers (en memoire)\n");
+    tprint("Systeme de fichiers\n");
     utoa(used, b); tprint("  fichiers : "); tprint(b); tprint(" octets\n");
     utoa(si.mem_used_mb, b); tprint("  RAM      : "); tprint(b); tprint(" / ");
     utoa(si.mem_total_mb, b); tprint(b); tprint(" Mio\n");
+}
+// sync : ecrit le systeme de fichiers sur le disque (persistance).
+static void cmd_sync(void) {
+    int r = sys_sync();
+    if (r == 0) tprint("systeme de fichiers enregistre sur le disque\n");
+    else tprint("pas de disque persistant (lance QEMU avec -hda disque.img)\n");
 }
 static void cmd_seq(const char *arg) {
     char t1[16], t2[16]; const char *p = next_tok(arg, t1, sizeof t1); next_tok(p, t2, sizeof t2);
@@ -1214,6 +1220,7 @@ static void run(char *line) {
     else if (!strcmp(cmd, "uniq")) cmd_uniq(arg);
     else if (!strcmp(cmd, "rev")) cmd_rev(arg);
     else if (!strcmp(cmd, "df")) cmd_df();
+    else if (!strcmp(cmd, "sync")) cmd_sync();
     else if (!strcmp(cmd, "seq")) cmd_seq(arg);
     else if (!strcmp(cmd, "figlet") || !strcmp(cmd, "banner")) cmd_figlet(arg);
     else if (!strcmp(cmd, "fortune")) cmd_fortune();

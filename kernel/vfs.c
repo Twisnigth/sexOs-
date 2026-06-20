@@ -230,3 +230,10 @@ void vfs_init(void) {
 }
 
 vfs_node_t *vfs_root(void) { return root; }
+
+// Supprime toute l'arborescence (tous les enfants de la racine). Utilise par la
+// persistance avant de recharger un instantane depuis le disque.
+void vfs_reset(void) {
+    if (!root) return;
+    while (root->children) vfs_delete(root->children);
+}

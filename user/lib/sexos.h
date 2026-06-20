@@ -37,6 +37,7 @@ static inline void     sys_write(const char *s, unsigned long n) { _sc3(1, 1, (l
 static inline void     sys_exit(int code)         { _sc1(60, code); for (;;) {} }
 static inline void     sys_reboot(void)           { _sc0(SYS_reboot); for (;;) {} }
 static inline void     sys_beep(int freq, int ms) { _sc2(SYS_beep, freq, ms); }
+static inline int      sys_sync(void)             { return (int)_sc0(SYS_sync); }
 static inline int      sys_getpid(void)           { return (int)_sc0(39); }
 
 // --- IPC ---------------------------------------------------------------------
