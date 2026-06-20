@@ -85,6 +85,8 @@ int  tcp_accept_nb(uint16_t port);               // accept non bloquant (sans ni
 // --- Utilitaires de haut niveau (utilisés par le shell) ----------------------
 bool net_dhcp(void);                              // obtient une IP par DHCP
 bool net_ping(ip4_t dst, uint32_t *rtt_ms);       // un ping (echo)
+void icmp_ping_send(ip4_t dst);                   // ping non bloquant : envoi de l'echo
+bool icmp_ping_got(void);                          // ping non bloquant : reponse recue ?
 bool dns_resolve(const char *name, ip4_t *out);   // résolution DNS
 // GET HTTP simple : écrit le corps dans buf (taille max len), renvoie la taille.
 int  http_get(const char *host, const char *path, char *buf, int len);

@@ -8,6 +8,7 @@
 #include "libwin.h"
 #include "gfx.h"
 #include "input.h"
+#include "http.h"           // curl/wget : client HTTP/HTTPS ring 3
 #include "ascii_art.h"      // banniere « sexOs »
 #include "phallus_art.h"    // art (braille decode) pour la commande « Phallus »
 
@@ -167,12 +168,14 @@ static void cmd_sysinfo(void) {
     utoa(s.pci_count, n); tprint("PCI     : "); tprint(n); tprint(" peripheriques\n");
 }
 static void cmd_help(void) {
-    tprint("fichiers : ls cd pwd cat head wc cp mv rm mkdir touch nano\n");
+    tprint("fichiers : ls cd pwd cat head tail wc grep find tree stat du\n");
+    tprint("           hexdump cp mv rm mkdir touch nano\n");
     tprint("systeme  : help clear echo whoami id uname about date sysinfo\n");
-    tprint("           uptime free history reboot Phallus\n");
-    tprint("reseau   : ip resolve <hote>\n");
+    tprint("           uptime free ps sleep cal history reboot Phallus\n");
+    tprint("reseau   : ip resolve <hote> ping <hote> curl <url> wget <url>\n");
     tprint("ssh      : hostkey pubkey pubkey-add ssh-keygen\n");
-    tprint("  fleche haut/bas : historique   ^C copier la ligne   ^V coller\n");
+    tprint("fun      : cowsay <txt> cmatrix\n");
+    tprint("  fleche haut/bas : historique   ^C copier   ^V coller\n");
 }
 
 // --- Gestion des cles SSH (memes fichiers que le serveur sshd) ----------------
@@ -515,6 +518,254 @@ static void cmd_mv(const char *arg) {
 }
 static void cmd_reboot(void) { tprint("redemarrage...\n"); redraw(); sys_reboot(); }
 
+// Analyse "a.b.c.d" -> ip (ordre hote). Renvoie 1 si valide.
+static int parse_ip(const char *s, uint32_t *ip) {
+    uint32_t part[4]; int pi = 0, v = 0, dig = 0;
+    for (const char *p = s; ; p++) {
+        if (*p >= '0' && *p <= '9') { v = v*10 + (*p - '0'); dig = 1; if (v > 255) return 0; }
+        else if (*p == '.' || *p == 0) { if (!dig || pi > 3) return 0; part[pi++] = v; v = 0; dig = 0; if (!*p) break; }
+        else return 0;
+    }
+    if (pi != 4) return 0;
+    *ip = (part[0]<<24) | (part[1]<<16) | (part[2]<<8) | part[3];
+    return 1;
+}
+
+// ping <hote> : 4 echos ICMP (resout le nom au besoin).
+static void cmd_ping(const char *arg) {
+    if (!arg[0]) { tprint("usage: ping <hote>\n"); return; }
+    uint32_t ip;
+    if (!parse_ip(arg, &ip)) {
+        int r = 0; uint64_t end = sys_time_ms() + 5000;
+        do { r = sys_dns_resolve(arg, &ip); if (r == 0) sys_yield(); } while (r == 0 && sys_time_ms() < end);
+        if (r != 1) { tprint("ping: hote introuvable\n"); return; }
+    }
+    char ips[20]; ip_str(ip, ips);
+    tprint("ping "); tprint(ips); tprint("\n");
+    for (int i = 0; i < 4; i++) {
+        sys_ping_send(ip);
+        uint64_t t0 = sys_time_ms(); int got = 0;
+        while (sys_time_ms() - t0 < 1000) { sys_yield(); if (sys_ping_got()) { got = 1; break; } }
+        if (got) { char b[12]; utoa((unsigned long)(sys_time_ms() - t0), b); tprint("reponse en "); tprint(b); tprint(" ms\n"); }
+        else tprint("delai depasse\n");
+        uint64_t p = sys_time_ms(); while (sys_time_ms() - p < 300) sys_yield();
+    }
+}
+
+// curl <url> : recupere une URL (http/https) et affiche le corps.
+static char http_body[65536];
+static void cmd_curl(const char *arg) {
+    if (!arg[0]) { tprint("usage: curl <url>\n"); return; }
+    int status = 0; const char *err = 0;
+    int n = http_fetch(arg, http_body, sizeof http_body - 1, &status, &err);
+    if (n < 0) { tprint("curl: echec"); if (err) { tprint(" ("); tprint(err); tprint(")"); } tprint("\n"); return; }
+    http_body[n] = 0;
+    char sb[8]; utoa(status, sb);
+    tprint("HTTP "); tprint(sb);
+    if (http_last_secure) tprint(http_last_verified ? "  [TLS verifie]" : "  [TLS non verifie]");
+    tprint("\n"); tprint(http_body);
+    if (n > 0 && http_body[n-1] != '\n') tprint("\n");
+}
+// wget <url> [fichier] : telecharge une URL dans un fichier.
+static void cmd_wget(const char *arg) {
+    char url[256], file[128]; const char *p = next_tok(arg, url, sizeof url); next_tok(p, file, sizeof file);
+    if (!url[0]) { tprint("usage: wget <url> [fichier]\n"); return; }
+    int status = 0; const char *err = 0;
+    int n = http_fetch(url, http_body, sizeof http_body - 1, &status, &err);
+    if (n < 0) { tprint("wget: echec\n"); return; }
+    if (!file[0]) strcpy(file, "index.sex");
+    char path[256]; build_abs(file, path);
+    dirent_t e; if (sys_vfs_stat(path, &e) != 0) sys_vfs_create(path, 0);
+    vfs_io_t io = { path, 0, http_body, (uint64_t)n }; sys_vfs_save(&io);
+    char b[12]; utoa((unsigned long)n, b); tprint(b); tprint(" octets -> "); tprint(file); tprint("\n");
+}
+
+// Sous-chaine presente dans 'hay' ?
+static int str_contains(const char *hay, const char *needle) {
+    if (!*needle) return 1;
+    for (const char *h = hay; *h; h++) {
+        const char *a = h, *b = needle;
+        while (*a && *b && *a == *b) { a++; b++; }
+        if (!*b) return 1;
+    }
+    return 0;
+}
+
+// --- grep / tail / stat / hexdump (un fichier dans fscratch) ------------------
+static void cmd_grep(const char *arg) {
+    char pat[128]; const char *p = next_tok(arg, pat, sizeof pat); while (*p == ' ') p++;
+    if (!pat[0] || !*p) { tprint("usage: grep <motif> <fichier>\n"); return; }
+    char path[256]; build_abs(p, path);
+    vfs_io_t io = { path, 0, fscratch, sizeof fscratch - 1 };
+    long n = sys_vfs_read(&io); if (n < 0) { tprint("grep: introuvable\n"); return; }
+    fscratch[n] = 0; int ls = 0;
+    for (int i = 0; i <= (int)n; i++)
+        if (i == (int)n || fscratch[i] == '\n') {
+            fscratch[i] = 0;
+            if (str_contains(fscratch + ls, pat)) { tprint(fscratch + ls); tprint("\n"); }
+            ls = i + 1;
+        }
+}
+static void cmd_tail(const char *arg) {
+    if (!arg[0]) { tprint("usage: tail <fichier>\n"); return; }
+    char path[256]; build_abs(arg, path);
+    vfs_io_t io = { path, 0, fscratch, sizeof fscratch - 1 };
+    long n = sys_vfs_read(&io); if (n < 0) { tprint("tail: introuvable\n"); return; }
+    fscratch[n] = 0; int lines = 0, start = 0;
+    for (int i = (int)n - 1; i >= 0; i--) if (fscratch[i] == '\n') { lines++; if (lines > 10) { start = i + 1; break; } }
+    tprint(fscratch + start);
+    if (n > 0 && fscratch[n-1] != '\n') tprint("\n");
+}
+static void cmd_stat(const char *arg) {
+    if (!arg[0]) { tprint("usage: stat <nom>\n"); return; }
+    char path[256]; build_abs(arg, path);
+    dirent_t e; if (sys_vfs_stat(path, &e) != 0) { tprint("stat: introuvable\n"); return; }
+    char b[16];
+    tprint("nom    : "); tprint(e.name); tprint("\n");
+    tprint("type   : "); tprint(e.type == 1 ? "dossier\n" : "fichier\n");
+    utoa((unsigned long)e.size, b); tprint("taille : "); tprint(b); tprint(" octets\n");
+}
+static void cmd_hexdump(const char *arg) {
+    if (!arg[0]) { tprint("usage: hexdump <fichier>\n"); return; }
+    char path[256]; build_abs(arg, path);
+    vfs_io_t io = { path, 0, fscratch, sizeof fscratch - 1 };
+    long n = sys_vfs_read(&io); if (n < 0) { tprint("hexdump: introuvable\n"); return; }
+    if (n > 256) n = 256;                              // limite l'affichage
+    const char *hx = "0123456789abcdef";
+    for (int i = 0; i < (int)n; i += 16) {
+        char off[6]; for (int k = 3; k >= 0; k--) off[3-k] = hx[(i >> (k*4)) & 0xf]; off[4] = 0;
+        tprint(off); tprint("  ");
+        for (int j = 0; j < 16; j++) {
+            if (i+j < (int)n) { char h[4]; h[0]=hx[(fscratch[i+j]>>4)&0xf]; h[1]=hx[fscratch[i+j]&0xf]; h[2]=' '; h[3]=0; tprint(h); }
+            else tprint("   ");
+        }
+        tprint(" ");
+        for (int j = 0; j < 16 && i+j < (int)n; j++) { char c = fscratch[i+j]; char s[2]; s[0]=(c>=32&&c<127)?c:'.'; s[1]=0; tprint(s); }
+        tprint("\n");
+    }
+}
+
+// --- find / tree / du (parcours recursif du VFS) -----------------------------
+static void path_join(char *out, const char *dir, const char *name) {
+    strcpy(out, dir); if (strcmp(dir, "/") != 0) strcat(out, "/"); strcat(out, name);
+}
+static void find_rec(const char *dir, const char *name) {
+    dirent_t e; int i = 0;
+    while (sys_vfs_list(dir, i++, &e) == 1) {
+        char child[256]; path_join(child, dir, e.name);
+        if (str_contains(e.name, name)) { tprint(child); if (e.type == 1) tprint("/"); tprint("\n"); }
+        if (e.type == 1) find_rec(child, name);
+    }
+}
+static void cmd_find(const char *arg) {
+    if (!arg[0]) { tprint("usage: find <nom>\n"); return; }
+    find_rec(cwd, arg);
+}
+static void tree_rec(const char *dir, int depth) {
+    dirent_t e; int i = 0;
+    while (sys_vfs_list(dir, i++, &e) == 1) {
+        for (int d = 0; d < depth; d++) tprint("  ");
+        tprint(e.name); if (e.type == 1) tprint("/"); tprint("\n");
+        if (e.type == 1) { char child[256]; path_join(child, dir, e.name); tree_rec(child, depth + 1); }
+    }
+}
+static void cmd_tree(const char *arg) {
+    char path[256]; if (arg[0]) build_abs(arg, path); else strcpy(path, cwd);
+    tprint(path); tprint("\n"); tree_rec(path, 1);
+}
+static unsigned long du_rec(const char *dir) {
+    unsigned long total = 0; dirent_t e; int i = 0;
+    while (sys_vfs_list(dir, i++, &e) == 1) {
+        if (e.type == 1) { char child[256]; path_join(child, dir, e.name); total += du_rec(child); }
+        else total += e.size;
+    }
+    return total;
+}
+static void cmd_du(const char *arg) {
+    char path[256]; if (arg[0]) build_abs(arg, path); else strcpy(path, cwd);
+    dirent_t e; if (sys_vfs_stat(path, &e) != 0) { tprint("du: introuvable\n"); return; }
+    unsigned long t = (e.type == 1) ? du_rec(path) : e.size;
+    char b[16]; utoa(t, b); tprint(b); tprint(" octets  "); tprint(path); tprint("\n");
+}
+
+// --- ps / sleep / cal --------------------------------------------------------
+static void cmd_ps(void) {
+    tprint("PID  ETAT    CPU    MEM(Kio)  NOM\n");
+    procinfo_t p; int i = 0; char b[16];
+    while (sys_proc_list(i++, &p) == 1) {
+        utoa(p.pid, b); tprint(b); tprint("    ");
+        const char *st = p.state==1?"pret  ":p.state==2?"actif ":p.state==3?"bloque":p.state==4?"zombie":"?     ";
+        tprint(st); tprint("  ");
+        utoa((unsigned long)p.cpu_ticks, b); tprint(b); tprint("    ");
+        utoa((unsigned long)p.mem_kb, b); tprint(b); tprint("      ");
+        tprint(p.name); tprint("\n");
+    }
+}
+static void cmd_sleep(const char *arg) {
+    int s = 0; for (const char *p = arg; *p >= '0' && *p <= '9'; p++) s = s*10 + (*p - '0');
+    if (s <= 0) { tprint("usage: sleep <secondes>\n"); return; }
+    uint64_t end = sys_time_ms() + (uint64_t)s * 1000;
+    while (sys_time_ms() < end) sys_yield();
+}
+static void cmd_cal(void) {
+    rtct_t t; sys_rtc(&t);
+    static const int dim[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    int y = t.year, mo = t.month;
+    int days = dim[(mo-1) % 12];
+    if (mo == 2 && ((y%4==0 && y%100!=0) || y%400==0)) days = 29;
+    // Jour de la semaine du 1er (Zeller : h 0=samedi).
+    int m = mo, Y = y; if (m < 3) { m += 12; Y--; }
+    int K = Y % 100, J = Y / 100;
+    int h = (1 + (13*(m+1))/5 + K + K/4 + J/4 + 5*J) % 7;
+    int col = (h + 6) % 7;                              // 0=dimanche
+    char b[8];
+    utoa(mo, b); tprint("  mois "); tprint(b); tprint("/"); utoa(y, b); tprint(b); tprint("\n");
+    tprint("Di Lu Ma Me Je Ve Sa\n");
+    for (int c = 0; c < col; c++) tprint("   ");
+    for (int d = 1; d <= days; d++) {
+        if (d < 10) tprint(" ");
+        utoa(d, b); tprint(b); tprint(" ");
+        if (++col == 7) { col = 0; tprint("\n"); }
+    }
+    if (col != 0) tprint("\n");
+}
+
+// --- cowsay / cmatrix (fun) --------------------------------------------------
+static void cmd_cowsay(const char *arg) {
+    const char *msg = arg[0] ? arg : "Meuh !";
+    int len = (int)strlen(msg);
+    tprint(" "); for (int i = 0; i < len + 2; i++) tprint("_"); tprint("\n");
+    tprint("< "); tprint(msg); tprint(" >\n");
+    tprint(" "); for (int i = 0; i < len + 2; i++) tprint("-"); tprint("\n");
+    tprint("        \\   ^__^\n");
+    tprint("         \\  (oo)\\_______\n");
+    tprint("            (__)\\       )\\/\\\n");
+    tprint("                ||----w |\n");
+    tprint("                ||     ||\n");
+}
+static unsigned g_rng;
+static unsigned rnd(void) { g_rng = g_rng * 1103515245u + 12345u; return (g_rng >> 16) & 0x7fff; }
+static void cmd_cmatrix(void) {
+    g_rng = (unsigned)sys_time_ms() | 1u;
+    memset(cells, ' ', sizeof cells);
+    int head[COLS]; for (int x = 0; x < COLS; x++) head[x] = rnd() % ROWS;
+    for (;;) {
+        event_t e; if (win_poll(&e)) { if (e.type == EV_KEY && e.pressed) break; }
+        for (int x = 0; x < COLS; x++) {
+            if (rnd() % 3 == 0) {
+                int yh = head[x];
+                cells[yh][x] = (char)(33 + (rnd() % 94));
+                int ty = yh - 6; if (ty < 0) ty += ROWS; cells[ty][x] = ' ';
+                head[x] = (yh + 1) % ROWS;
+            }
+        }
+        cx = COLS - 1; cy = ROWS - 1;                  // curseur hors du chemin
+        redraw();
+        uint64_t t = sys_time_ms(); while (sys_time_ms() - t < 60) sys_yield();
+    }
+    memset(cells, ' ', sizeof cells); cx = cy = 0;
+}
+
 static void run(char *line) {
     char *cmd = line, *arg = line;
     while (*arg && *arg != ' ') arg++;
@@ -540,11 +791,26 @@ static void run(char *line) {
     else if (!strcmp(cmd, "free")) cmd_free();
     else if (!strcmp(cmd, "ip") || !strcmp(cmd, "ifconfig")) cmd_ip();
     else if (!strcmp(cmd, "resolve") || !strcmp(cmd, "nslookup")) cmd_resolve(arg);
+    else if (!strcmp(cmd, "ping")) cmd_ping(arg);
+    else if (!strcmp(cmd, "curl")) cmd_curl(arg);
+    else if (!strcmp(cmd, "wget")) cmd_wget(arg);
     else if (!strcmp(cmd, "history")) cmd_history();
     else if (!strcmp(cmd, "cp")) cmd_cp(arg);
     else if (!strcmp(cmd, "mv")) cmd_mv(arg);
     else if (!strcmp(cmd, "head")) cmd_head(arg);
+    else if (!strcmp(cmd, "tail")) cmd_tail(arg);
     else if (!strcmp(cmd, "wc")) cmd_wc(arg);
+    else if (!strcmp(cmd, "grep")) cmd_grep(arg);
+    else if (!strcmp(cmd, "find")) cmd_find(arg);
+    else if (!strcmp(cmd, "tree")) cmd_tree(arg);
+    else if (!strcmp(cmd, "stat")) cmd_stat(arg);
+    else if (!strcmp(cmd, "du")) cmd_du(arg);
+    else if (!strcmp(cmd, "hexdump") || !strcmp(cmd, "xxd")) cmd_hexdump(arg);
+    else if (!strcmp(cmd, "ps")) cmd_ps();
+    else if (!strcmp(cmd, "sleep")) cmd_sleep(arg);
+    else if (!strcmp(cmd, "cal")) cmd_cal();
+    else if (!strcmp(cmd, "cowsay")) cmd_cowsay(arg);
+    else if (!strcmp(cmd, "cmatrix") || !strcmp(cmd, "matrix")) cmd_cmatrix();
     else if (!strcmp(cmd, "reboot")) cmd_reboot();
     else if (!strcmp(cmd, "Phallus") || !strcmp(cmd, "phallus")) cmd_phallus();
     else if (!strcmp(cmd, "hostkey")) cmd_hostkey();

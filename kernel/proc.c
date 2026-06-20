@@ -316,6 +316,8 @@ long syscall_dispatch(sysargs_t *a) {
         return r;
     }
     case SYS_random:     csprng_bytes((void *)a->rdi, (size_t)a->rsi); return 0;
+    case SYS_ping_send:  icmp_ping_send((ip4_t)a->rdi); return 0;
+    case SYS_ping_got:   return icmp_ping_got() ? 1 : 0;
     case SYS_ssh_hostkey: return ssh_hostkey_text((char *)a->rdi, (int)a->rsi);
     case SYS_ssh_keygen: {
         const user_t *cu = users_current();

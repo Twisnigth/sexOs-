@@ -126,8 +126,13 @@ $(OBJDIR)/app_hello.elf: $(OBJDIR)/u_app_hello.o $(APPLIBS) user/user.ld
 $(OBJDIR)/app_crash.elf: $(OBJDIR)/u_app_crash.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_app_crash.o $(APPLIBS)
 # Applications complètes (terminal, explorateur) : chacune un PROCESSUS séparé.
-$(OBJDIR)/term.elf: $(OBJDIR)/u_term.o $(APPLIBS) user/user.ld
-	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_term.o $(APPLIBS)
+# Le terminal embarque la pile HTTP/TLS (commandes curl/wget) en plus des libs.
+TERM_NET_OBJS := $(OBJDIR)/u_http.o $(OBJDIR)/u_tls.o $(OBJDIR)/u_bigint.o \
+                 $(OBJDIR)/u_rsa.o $(OBJDIR)/u_ecdsa.o $(OBJDIR)/u_aesgcm.o \
+                 $(OBJDIR)/u_sha384.o $(OBJDIR)/u_x509.o $(OBJDIR)/u_castore.o \
+                 $(OBJDIR)/u_monocypher.o $(OBJDIR)/uk_sha256.o
+$(OBJDIR)/term.elf: $(OBJDIR)/u_term.o $(TERM_NET_OBJS) $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_term.o $(TERM_NET_OBJS) $(APPLIBS)
 $(OBJDIR)/files.elf: $(OBJDIR)/u_files.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_files.o $(APPLIBS)
 $(OBJDIR)/monitor.elf: $(OBJDIR)/u_monitor.o $(APPLIBS) user/user.ld

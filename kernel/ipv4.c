@@ -82,6 +82,23 @@ void icmp_rx(ip4_t src, const uint8_t *d, uint16_t len) {
     }
 }
 
+// --- Ping NON BLOQUANT (pour la commande « ping » en ring 3) -----------------
+//  L'envoi ne sonde pas le NIC (ipv4_send se contente d'émettre) ; la réponse
+//  est captée par icmp_rx, exécuté dans la tâche réseau. L'appelant (ring 3)
+//  interroge icmp_ping_got() en cédant le CPU.
+void icmp_ping_send(ip4_t dst) {
+    static uint16_t seq = 0;
+    ping_id = 0xAB00; ping_seq = ++seq; ping_got = false;
+    uint8_t p[40];
+    p[0] = 8; p[1] = 0; p[2] = 0; p[3] = 0;
+    p[4] = ping_id >> 8; p[5] = ping_id & 0xFF;
+    p[6] = ping_seq >> 8; p[7] = ping_seq & 0xFF;
+    for (int i = 8; i < 40; i++) p[i] = (uint8_t)i;
+    uint16_t cs = net_checksum(p, 40); p[2] = cs >> 8; p[3] = cs & 0xFF;
+    ipv4_send(dst, IP_ICMP, p, 40);
+}
+bool icmp_ping_got(void) { return ping_got; }
+
 bool net_ping(ip4_t dst, uint32_t *rtt_ms) {
     static uint16_t seq = 0;
     ping_id = 0xAB00; ping_seq = ++seq; ping_got = false;

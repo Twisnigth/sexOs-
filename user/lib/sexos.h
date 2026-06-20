@@ -83,6 +83,8 @@ static inline int  sys_tcp_send(int id, const void *b, int n) { return (int)_sc3
 static inline int  sys_tcp_recv(int id, void *b, int n) { return (int)_sc3(SYS_tcp_recv, id, (long)b, n); }
 static inline void sys_tcp_close(int id)                { _sc1(SYS_tcp_close, id); }
 static inline void sys_random(void *b, unsigned long n) { _sc2(SYS_random, (long)b, (long)n); }
+static inline void sys_ping_send(uint32_t ip) { _sc1(SYS_ping_send, (long)ip); }
+static inline int  sys_ping_got(void)         { return (int)_sc0(SYS_ping_got); }
 
 // --- SSH : clé d'hôte + génération de clé (gérées par le noyau) --------------
 static inline int sys_ssh_hostkey(char *b, int max) { return (int)_sc2(SYS_ssh_hostkey, (long)b, max); }

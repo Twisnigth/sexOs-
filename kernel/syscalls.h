@@ -61,6 +61,8 @@
 #define SYS_random      0x277      // (buf, len) : octets aléatoires (CSPRNG noyau)
 #define SYS_ssh_hostkey 0x278      // (buf, max) -> texte cle d'hote + empreinte
 #define SYS_ssh_keygen  0x279      // (buf, max) -> genere une cle, l'ajoute, rend la privee
+#define SYS_ping_send   0x27a      // (ip) : envoie un echo ICMP (non bloquant)
+#define SYS_ping_got    0x27b      // -> 1 si la reponse echo est arrivee
 
 // --- Système de fichiers (par chemin ; agit sur le VFS du noyau) -------------
 #define SYS_vfs_list    0x230      // (path, index, *dirent) -> 1=entrée / 0=fin / -1=erreur
