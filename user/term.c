@@ -954,16 +954,21 @@ static void cmd_rev(const char *arg) {
 }
 static void cmd_df(void) {
     unsigned long used = du_rec("/"); sysinfo_t si; sys_sysinfo(&si); char b[16];
-    tprint("Systeme de fichiers\n");
+    tprint("Systeme de fichiers : ");
+    tprint(si.fs_persistent ? "DISQUE (persistant, sauvegarde auto)\n"
+                            : "RAM (NON persistant - perdu au reboot)\n");
     utoa(used, b); tprint("  fichiers : "); tprint(b); tprint(" octets\n");
     utoa(si.mem_used_mb, b); tprint("  RAM      : "); tprint(b); tprint(" / ");
     utoa(si.mem_total_mb, b); tprint(b); tprint(" Mio\n");
 }
-// sync : ecrit le systeme de fichiers sur le disque (persistance).
+// sync : force l'ecriture du systeme de fichiers sur le disque.
 static void cmd_sync(void) {
     int r = sys_sync();
     if (r == 0) tprint("systeme de fichiers enregistre sur le disque\n");
-    else tprint("pas de disque persistant (lance QEMU avec -hda disque.img)\n");
+    else {
+        tprint("pas de disque persistant detecte.\n");
+        tprint("relance QEMU avec :  -M pc -drive file=disque.img,format=raw,if=ide\n");
+    }
 }
 static void cmd_seq(const char *arg) {
     char t1[16], t2[16]; const char *p = next_tok(arg, t1, sizeof t1); next_tok(p, t2, sizeof t2);
@@ -1246,6 +1251,9 @@ int main(void) {
     dirent_t e; if (sys_vfs_stat(cwd, &e) != 0) strcpy(cwd, "/");
     for (int i = 0; i < SEXOS_BANNER_LINES; i++) { tprint(sexos_banner[i]); tprint("\n"); }
     tprint("Terminal ring 3. Tapez 'help', ou 'Phallus' pour le fastfetch.\n");
+    { sysinfo_t si; sys_sysinfo(&si);
+      if (si.fs_persistent) tprint("Disque persistant : OK (sauvegarde automatique des fichiers).\n");
+      else tprint("ATTENTION : pas de disque, fichiers en RAM (perdus au reboot). Tape 'df'.\n"); }
     show_prompt(); redraw();
 
     for (;;) {

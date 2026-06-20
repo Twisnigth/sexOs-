@@ -291,6 +291,7 @@ long syscall_dispatch(sysargs_t *a) {
             si->mem_used_mb  = (uint32_t)(pmm_used_bytes() / (1024 * 1024));
             si->uptime_s     = (uint32_t)(pit_ms() / 1000);
             si->pci_count    = (uint32_t)pci_device_count();
+            si->fs_persistent = fs_present() ? 1 : 0;
         }
         return 0;
     }
@@ -445,7 +446,9 @@ long syscall_dispatch(sysargs_t *a) {
         if (!users_can_write_path(io->path)) return -1;
         vfs_node_t *f = vfs_resolve(io->path);
         if (!f) return -1;
-        return vfs_write(f, io->off, io->buf, io->len);
+        int r = vfs_write(f, io->off, io->buf, io->len);
+        if (r >= 0) fs_save();                     // persistance automatique
+        return r;
     }
     case SYS_vfs_create: {
         const char *path = (const char *)a->rdi;
@@ -460,21 +463,27 @@ long syscall_dispatch(sysargs_t *a) {
         else { memcpy(parent, buf, slash); parent[slash] = 0; }
         vfs_node_t *p = vfs_resolve(parent);
         if (!p || p->type != VFS_DIR) return -1;
-        return vfs_create(p, name, (a->rsi ? VFS_DIR : VFS_FILE)) ? 0 : -1;
+        int r = vfs_create(p, name, (a->rsi ? VFS_DIR : VFS_FILE)) ? 0 : -1;
+        if (r == 0) fs_save();                      // persistance automatique
+        return r;
     }
     case SYS_vfs_delete: {
         const char *path = (const char *)a->rdi;
         if (!users_can_write_path(path)) return -1;
         vfs_node_t *n = vfs_resolve(path);
         if (!n) return -1;
-        return vfs_delete(n) ? 0 : -1;
+        int r = vfs_delete(n) ? 0 : -1;
+        if (r == 0) fs_save();                      // persistance automatique
+        return r;
     }
     case SYS_vfs_save: {                          // remplace tout le fichier (tronque)
         vfs_io_t *io = (vfs_io_t *)a->rdi;
         if (!users_can_write_path(io->path)) return -1;
         vfs_node_t *f = vfs_resolve(io->path);
         if (!f || f->type != VFS_FILE) return -1;
-        return vfs_replace(f, io->buf, io->len);
+        int r = vfs_replace(f, io->buf, io->len);
+        if (r >= 0) fs_save();                      // persistance automatique
+        return r;
     }
     case SYS_clip_set: {                          // presse-papiers : copier
         int n = (int)a->rsi; if (n < 0) n = 0;

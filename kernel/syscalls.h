@@ -109,6 +109,7 @@ typedef struct {
 // Informations système renvoyées par SYS_sysinfo (pour l'appli Paramètres).
 typedef struct {
     uint32_t mem_total_mb, mem_used_mb, uptime_s, pci_count;
+    uint32_t fs_persistent;     // 1 si un disque persistant est present
 } sysinfo_t;
 
 // État de l'interface réseau renvoyé par SYS_net_info (ordre hôte).
