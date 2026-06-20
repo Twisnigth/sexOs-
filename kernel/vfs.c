@@ -188,21 +188,21 @@ void vfs_init(void) {
     vfs_create(dotssh, "authorized_keys", VFS_FILE);
 
     vfs_node_t *f;
-    f = vfs_create(user, "bienvenue.txt", VFS_FILE);
+    f = vfs_create(user, "bienvenue.sex", VFS_FILE);
     vfs_set_contents(f,
         "Bienvenue dans sexOs v2 !\n\n"
         "Ceci est un fichier texte stocke dans le systeme de fichiers.\n"
         "Utilisez l'explorateur pour naviguer, et l'editeur pour modifier.\n\n"
         "Mascotte :\n  D\n  |\n  |\n  8\n");
 
-    f = vfs_create(docs, "notes.txt", VFS_FILE);
+    f = vfs_create(docs, "notes.sex", VFS_FILE);
     vfs_set_contents(f, "Liste de choses a faire :\n - tester les fenetres\n - ouvrir les parametres\n");
 
-    f = vfs_create(docs, "lisez-moi.txt", VFS_FILE);
+    f = vfs_create(docs, "lisez-moi.sex", VFS_FILE);
     vfs_set_contents(f, "sexOs est un systeme d'exploitation pedagogique ecrit en C et assembleur.\n");
 
     vfs_node_t *sys = vfs_create(root, "systeme", VFS_DIR);
-    f = vfs_create(sys, "version.txt", VFS_FILE);
+    f = vfs_create(sys, "version.sex", VFS_FILE);
     vfs_set_contents(f, "sexOs version 2.0\nNoyau x86_64, demarrage UEFI/BIOS via Limine.\n");
 
     kprintf("[vfs] arborescence en memoire prete\n");

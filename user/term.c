@@ -167,9 +167,11 @@ static void cmd_sysinfo(void) {
     utoa(s.pci_count, n); tprint("PCI     : "); tprint(n); tprint(" peripheriques\n");
 }
 static void cmd_help(void) {
-    tprint("commandes : help clear echo ls cd pwd cat mkdir touch rm nano\n");
-    tprint("            whoami date sysinfo Phallus\n");
-    tprint("    ssh   : hostkey pubkey pubkey-add ssh-keygen\n");
+    tprint("fichiers : ls cd pwd cat head wc cp mv rm mkdir touch nano\n");
+    tprint("systeme  : help clear echo whoami id uname about date sysinfo\n");
+    tprint("           uptime free history reboot Phallus\n");
+    tprint("reseau   : ip resolve <hote>\n");
+    tprint("ssh      : hostkey pubkey pubkey-add ssh-keygen\n");
     tprint("  fleche haut/bas : historique   ^C copier la ligne   ^V coller\n");
 }
 
@@ -415,6 +417,104 @@ static void cmd_phallus(void) {
     for (;;) { event_t e; int r = win_wait(&e); if (r < 0) sys_exit(0); if (e.type == EV_KEY && e.pressed) break; }
 }
 
+// --- Commandes utilitaires supplementaires -----------------------------------
+static char fscratch[16384];                 // tampon partage (cp/mv/head/wc)
+
+// Extrait le prochain mot de 'p' dans 'out' ; renvoie le pointeur apres le mot.
+static const char *next_tok(const char *p, char *out, int max) {
+    while (*p == ' ') p++;
+    int i = 0; while (*p && *p != ' ' && i < max-1) out[i++] = *p++;
+    out[i] = 0; return p;
+}
+// Formate une IP (ordre hote) "a.b.c.d" dans out.
+static void ip_str(uint32_t ip, char *out) {
+    out[0] = 0; char n[8];
+    for (int i = 3; i >= 0; i--) { utoa((ip >> (i*8)) & 0xff, n); strcat(out, n); if (i) strcat(out, "."); }
+}
+// Copie le contenu d'un fichier (chemins absolus). Renvoie 0/-1.
+static int copy_file(const char *srcabs, const char *dstabs) {
+    vfs_io_t in = { srcabs, 0, fscratch, sizeof fscratch };
+    long n = sys_vfs_read(&in); if (n < 0) return -1;
+    dirent_t e; if (sys_vfs_stat(dstabs, &e) != 0) sys_vfs_create(dstabs, 0);
+    vfs_io_t out = { dstabs, 0, fscratch, (uint64_t)n };
+    return sys_vfs_save(&out) < 0 ? -1 : 0;
+}
+
+static void cmd_uname(void) { tprint("sexOs 2.0 x86_64\n"); }
+static void cmd_id(void) {
+    userinfo_t u; sys_whoami(&u);
+    tprint("user="); tprint(u.name); tprint(u.is_admin ? " (admin)\n" : " (standard)\n");
+}
+static void cmd_about(void) {
+    tprint("sexOs v2 -- systeme d'exploitation x86_64 (noyau C/asm + bureau ring 3)\n");
+    tprint("  D\n  |\n  |\n  8\n");
+}
+static void cmd_uptime(void) {
+    sysinfo_t s; sys_sysinfo(&s); char b[16];
+    utoa(s.uptime_s, b); tprint("actif depuis "); tprint(b); tprint(" secondes\n");
+}
+static void cmd_free(void) {
+    sysinfo_t s; sys_sysinfo(&s); char b[16];
+    utoa(s.mem_used_mb, b); tprint("memoire utilisee : "); tprint(b); tprint(" Mio\n");
+    utoa(s.mem_total_mb, b); tprint("memoire totale   : "); tprint(b); tprint(" Mio\n");
+}
+static void cmd_ip(void) {
+    netinfo_t ni; sys_net_info(&ni);
+    if (!ni.up) { tprint("reseau hors ligne\n"); return; }
+    char b[20];
+    ip_str(ni.ip, b);      tprint("IP        : "); tprint(b); tprint("\n");
+    ip_str(ni.mask, b);    tprint("Masque    : "); tprint(b); tprint("\n");
+    ip_str(ni.gateway, b); tprint("Passerelle: "); tprint(b); tprint("\n");
+    ip_str(ni.dns, b);     tprint("DNS       : "); tprint(b); tprint("\n");
+}
+static void cmd_resolve(const char *arg) {
+    if (!arg[0]) { tprint("usage: resolve <hote>\n"); return; }
+    uint32_t ip = 0; int r = 0; uint64_t end = sys_time_ms() + 5000;
+    do { r = sys_dns_resolve(arg, &ip); if (r == 0) sys_yield(); } while (r == 0 && sys_time_ms() < end);
+    if (r == 1) { char b[20]; ip_str(ip, b); tprint(arg); tprint(" -> "); tprint(b); tprint("\n"); }
+    else tprint("resolve: echec\n");
+}
+static void cmd_history(void) {
+    for (int i = 0; i < hist_count; i++) { char n[8]; utoa(i+1, n); tprint(n); tprint("  "); tprint(history[i]); tprint("\n"); }
+}
+static void cmd_head(const char *arg) {
+    if (!arg[0]) { tprint("usage: head <fichier>\n"); return; }
+    char path[256]; build_abs(arg, path);
+    vfs_io_t io = { path, 0, fscratch, sizeof fscratch - 1 };
+    long n = sys_vfs_read(&io); if (n < 0) { tprint("head: introuvable\n"); return; }
+    fscratch[n] = 0; int lines = 0;
+    for (long i = 0; i < n && lines < 10; i++) { tputc(fscratch[i]); if (fscratch[i] == '\n') lines++; }
+    if (n > 0 && fscratch[n-1] != '\n') tprint("\n");
+}
+static void cmd_wc(const char *arg) {
+    if (!arg[0]) { tprint("usage: wc <fichier>\n"); return; }
+    char path[256]; build_abs(arg, path);
+    vfs_io_t io = { path, 0, fscratch, sizeof fscratch - 1 };
+    long n = sys_vfs_read(&io); if (n < 0) { tprint("wc: introuvable\n"); return; }
+    int lc = 0, wc = 0, inw = 0;
+    for (long i = 0; i < n; i++) { char c = fscratch[i];
+        if (c == '\n') lc++;
+        if (c == ' ' || c == '\n' || c == '\t') inw = 0; else if (!inw) { inw = 1; wc++; } }
+    char b[12];
+    utoa(lc, b); tprint(b); tprint(" lignes  ");
+    utoa(wc, b); tprint(b); tprint(" mots  ");
+    utoa((unsigned long)n, b); tprint(b); tprint(" octets\n");
+}
+static void cmd_cp(const char *arg) {
+    char s[128], d[128]; const char *p = next_tok(arg, s, sizeof s); next_tok(p, d, sizeof d);
+    if (!s[0] || !d[0]) { tprint("usage: cp <source> <destination>\n"); return; }
+    char ps[256], pd[256]; build_abs(s, ps); build_abs(d, pd);
+    if (copy_file(ps, pd) != 0) tprint("cp: echec (source introuvable / permission ?)\n");
+}
+static void cmd_mv(const char *arg) {
+    char s[128], d[128]; const char *p = next_tok(arg, s, sizeof s); next_tok(p, d, sizeof d);
+    if (!s[0] || !d[0]) { tprint("usage: mv <source> <destination>\n"); return; }
+    char ps[256], pd[256]; build_abs(s, ps); build_abs(d, pd);
+    if (copy_file(ps, pd) != 0) { tprint("mv: echec\n"); return; }
+    sys_vfs_delete(ps);
+}
+static void cmd_reboot(void) { tprint("redemarrage...\n"); redraw(); sys_reboot(); }
+
 static void run(char *line) {
     char *cmd = line, *arg = line;
     while (*arg && *arg != ' ') arg++;
@@ -431,8 +531,21 @@ static void run(char *line) {
     else if (!strcmp(cmd, "touch")) cmd_make(arg, 0);
     else if (!strcmp(cmd, "rm")) cmd_rm(arg);
     else if (!strcmp(cmd, "whoami")) { userinfo_t u; sys_whoami(&u); tprint(u.name); if (u.is_admin) tprint(" (admin)"); tprint("\n"); }
+    else if (!strcmp(cmd, "id")) cmd_id();
+    else if (!strcmp(cmd, "uname")) cmd_uname();
+    else if (!strcmp(cmd, "about")) cmd_about();
     else if (!strcmp(cmd, "date")) cmd_date();
     else if (!strcmp(cmd, "sysinfo")) cmd_sysinfo();
+    else if (!strcmp(cmd, "uptime")) cmd_uptime();
+    else if (!strcmp(cmd, "free")) cmd_free();
+    else if (!strcmp(cmd, "ip") || !strcmp(cmd, "ifconfig")) cmd_ip();
+    else if (!strcmp(cmd, "resolve") || !strcmp(cmd, "nslookup")) cmd_resolve(arg);
+    else if (!strcmp(cmd, "history")) cmd_history();
+    else if (!strcmp(cmd, "cp")) cmd_cp(arg);
+    else if (!strcmp(cmd, "mv")) cmd_mv(arg);
+    else if (!strcmp(cmd, "head")) cmd_head(arg);
+    else if (!strcmp(cmd, "wc")) cmd_wc(arg);
+    else if (!strcmp(cmd, "reboot")) cmd_reboot();
     else if (!strcmp(cmd, "Phallus") || !strcmp(cmd, "phallus")) cmd_phallus();
     else if (!strcmp(cmd, "hostkey")) cmd_hostkey();
     else if (!strcmp(cmd, "pubkey")) cmd_pubkey();
