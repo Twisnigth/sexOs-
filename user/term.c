@@ -979,6 +979,14 @@ static void cmd_fortune(void) {
 static void draw_ctext(const char *s, int y, int sc, uint32_t col) {
     canvas_draw_string(cv, s, cv->width/2 - canvas_text_width(s, sc)/2, y, col, sc);
 }
+// Rectangle aux coins arrondis (les coins prennent la couleur de fond 'bg').
+static void fill_round(int x, int y, int w, int h, uint32_t c, uint32_t bg) {
+    canvas_fill_rect(cv, x, y, w, h, c);
+    canvas_fill_rect(cv, x, y, 2, 2, bg);
+    canvas_fill_rect(cv, x+w-2, y, 2, 2, bg);
+    canvas_fill_rect(cv, x, y+h-2, 2, 2, bg);
+    canvas_fill_rect(cv, x+w-2, y+h-2, 2, 2, bg);
+}
 static void cmd_snake(void) {
     int W = cv->width, H = cv->height;
     const int GS = 16, top = 20;                       // case 16px, barre de score
@@ -986,9 +994,10 @@ static void cmd_snake(void) {
     if (cols > 60) cols = 60;
     if (rows > 40) rows = 40;
     int ox = (W - cols*GS) / 2, oy = top + (H - top - rows*GS) / 2;
+    // Le "serpent" est un SEXE : hampe rose (corps), gland (tete), bourses (queue).
     uint32_t bg = rgb(0x0a,0x0e,0x12), border = rgb(0x3a,0x44,0x58),
-             head = rgb(0x9a,0xf0,0x6a), body = rgb(0x46,0xc0,0x52), tail = rgb(0x2f,0x8a,0x3c),
-             food = rgb(0xff,0x4f,0x5a), wt = rgb(0xe6,0xec,0xf2), dim = rgb(0x8a,0x98,0xa6), eye = rgb(0x10,0x18,0x12);
+             glans = rgb(0xff,0x7a,0xb8), shaft = rgb(0xff,0x9a,0xc8), balls = rgb(0xf0,0x86,0xbe),
+             food = rgb(0xff,0x4f,0x5a), wt = rgb(0xe6,0xec,0xf2), dim = rgb(0x8a,0x98,0xa6), slit = rgb(0x9a,0x2a,0x5a);
     static int best = 0;                                // record de la session
     for (;;) {                                          // boucle de parties
         static int sx[2600], sy[2600];
@@ -1039,14 +1048,21 @@ static void cmd_snake(void) {
             canvas_fill_rect(cv, ox+cols*GS, oy-3, 3, rows*GS+6, border);
             canvas_fill_rect(cv, ox+fx*GS+3, oy+fy*GS+3, GS-6, GS-6, food);   // pomme
             for (int i = len-1; i >= 0; i--) {
-                uint32_t c = (i==0) ? head : (i > len*3/4 ? tail : body);
-                canvas_fill_rect(cv, ox+sx[i]*GS+1, oy+sy[i]*GS+1, GS-2, GS-2, c);
+                int px = ox+sx[i]*GS, py = oy+sy[i]*GS;
+                if (i == len-1 && len > 2) {
+                    // queue = les bourses (deux boules cote a cote)
+                    fill_round(px+1, py+4, 6, 10, balls, bg);
+                    fill_round(px+8, py+4, 6, 10, balls, bg);
+                } else if (i == 0) {
+                    // tete = le gland (bulbe rose plus vif, pleine case) + la fente
+                    fill_round(px, py, GS, GS, glans, bg);
+                    int fxp = px+GS/2 + dx*(GS/2-3), fyp = py+GS/2 + dy*(GS/2-3);
+                    canvas_fill_rect(cv, fxp-1, fyp-1, 3, 3, slit);
+                } else {
+                    // corps = la hampe
+                    fill_round(px+1, py+1, GS-2, GS-2, shaft, bg);
+                }
             }
-            // yeux sur la tete (selon la direction)
-            { int hxp = ox+sx[0]*GS, hyp = oy+sy[0]*GS;
-              int ex = hxp + (dx>0?GS-6:dx<0?2:4), ey = hyp + (dy>0?GS-6:dy<0?2:4);
-              canvas_fill_rect(cv, ex, ey, 3, 3, eye);
-              canvas_fill_rect(cv, ex + (dx? 0:8), ey + (dy?0:8), 3, 3, eye); }
             if (paused) draw_ctext("-- PAUSE --", H/2, 2, wt);
             win_damage();
             uint64_t t = sys_time_ms(); while (sys_time_ms()-t < (unsigned)delay) sys_yield();
