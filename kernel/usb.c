@@ -248,7 +248,13 @@ void usb_init(void) {
     vmm_map_mmio(bar, 0x10000);
     cap = (volatile uint8_t *)phys_to_virt(bar);
 
-    uint8_t caplen = cap[0];
+    // ATTENTION : certains environnements (QEMU/TCG) ne renvoient que 0 pour les
+    // lectures MMIO en 8/16 bits sur les registres de capacite. On lit donc TOUT
+    // en 32 bits et on extrait les octets nous-memes (CAPLENGTH = octet 0,
+    // HCIVERSION = octets 2-3 du meme dword a l'offset 0).
+    uint32_t cap0 = rd32(cap, 0x00);
+    uint8_t  caplen = cap0 & 0xFF;
+    uint16_t hciver = (cap0 >> 16) & 0xFFFF;
     uint32_t hcs1 = rd32(cap, 0x04);
     uint32_t hcs2 = rd32(cap, 0x08);
     uint32_t dboff = rd32(cap, 0x14) & ~0x3u;
@@ -258,7 +264,7 @@ void usb_init(void) {
     db = (volatile uint32_t *)(cap + dboff);
     max_slots = hcs1 & 0xFF;
     num_ports = (hcs1 >> 24) & 0xFF;
-    kprintf("[xhci] xHCI v%x, %d slots, %d ports\n", *(volatile uint16_t *)(cap + 2), max_slots, num_ports);
+    kprintf("[xhci] xHCI v%x, caplen=%d, %d slots, %d ports\n", hciver, caplen, max_slots, num_ports);
 
     // stop + reset
     wr32(op, O_USBCMD, rd32(op, O_USBCMD) & ~1u);
