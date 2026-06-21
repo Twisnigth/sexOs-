@@ -781,8 +781,16 @@ static void usb_hotplug_scan(void) {
 //  Amorcage du controleur
 // =============================================================================
 void usb_init(void) {
-    const pci_device_t *dev = pci_find(0x0C, 0x03);    // bus serie USB
-    if (!dev || dev->prog_if != 0x30) {                // 0x30 = xHCI
+    // Cherche un contrôleur xHCI (classe 0x0C, sous-classe 0x03, prog_if 0x30).
+    // ATTENTION : une VM (VMware...) expose souvent PLUSIEURS contrôleurs USB
+    // (UHCI/EHCI pour l'USB 1/2 + xHCI pour l'USB 3). Il faut donc parcourir
+    // TOUS les périphériques PCI, pas seulement le premier contrôleur USB.
+    const pci_device_t *dev = NULL;
+    for (int i = 0; i < pci_device_count(); i++) {
+        const pci_device_t *d = pci_get_device(i);
+        if (d->class_code == 0x0C && d->subclass == 0x03 && d->prog_if == 0x30) { dev = d; break; }
+    }
+    if (!dev) {
         kprintf("[usb] pas de controleur xHCI\n");
         return;
     }
@@ -790,7 +798,11 @@ void usb_init(void) {
     uint32_t cmd = pci_read32(dev->bus, dev->slot, dev->func, 0x04);
     pci_write32(dev->bus, dev->slot, dev->func, 0x04, cmd | 0x6);
 
-    uint64_t bar = ((uint64_t)dev->bar[0] & ~0xFULL) | ((uint64_t)dev->bar[1] << 32);
+    uint64_t bar;
+    if ((dev->bar[0] & 0x6) == 0x4)        // BAR mémoire 64 bits (type 10b)
+        bar = ((uint64_t)dev->bar[0] & ~0xFULL) | ((uint64_t)dev->bar[1] << 32);
+    else                                    // BAR mémoire 32 bits
+        bar = (uint64_t)(dev->bar[0] & ~0xFu);
     vmm_map_mmio(bar, 0x10000);
     cap = (volatile uint8_t *)phys_to_virt(bar);
 
