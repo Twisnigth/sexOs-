@@ -9,6 +9,7 @@
 // =============================================================================
 #include "fs.h"
 #include "ata.h"
+#include "ahci.h"
 #include "vfs.h"
 #include "usb.h"
 #include "klib.h"
@@ -17,6 +18,21 @@
 #define FS_CAP   (1024 * 1024)        // 1 Mio d'instantane (suffisant pour des textes)
 
 static uint8_t image[FS_CAP];
+
+// --- couche disque : IDE « legacy » ou SATA AHCI (VM modernes) ---------------
+static int disk_kind;                 // 0=aucun, 1=IDE, 2=AHCI
+static bool disk_init(void) {
+    if (ata_init())  { disk_kind = 1; return true; }   // IDE primaire (0x1F0)
+    if (ahci_init()) { disk_kind = 2; return true; }   // SATA AHCI (q35, VMware...)
+    disk_kind = 0; return false;
+}
+static bool disk_ok(void)    { return disk_kind != 0; }
+static bool disk_read(uint32_t l, uint32_t c, void *b) {
+    return disk_kind == 1 ? ata_read(l, c, b) : disk_kind == 2 ? ahci_read(l, c, b) : false;
+}
+static bool disk_write(uint32_t l, uint32_t c, const void *b) {
+    return disk_kind == 1 ? ata_write(l, c, b) : disk_kind == 2 ? ahci_write(l, c, b) : false;
+}
 
 // --- ecriture little-endian --------------------------------------------------
 static size_t pu8 (uint8_t *b, size_t o, uint8_t v)  { b[o]=v; return o+1; }
@@ -78,23 +94,23 @@ static size_t deser_node(vfs_node_t *parent, const uint8_t *b, size_t o, size_t 
 }
 
 // --- disque ------------------------------------------------------------------
-bool fs_present(void) { return ata_ok(); }
+bool fs_present(void) { return disk_ok(); }
 
 int fs_save(void) {
-    if (!ata_ok()) return -1;
+    if (!disk_ok()) return -1;
     size_t n = fs_serialize(image);
     uint32_t secs = (n + 511) / 512;
-    return ata_write(0, secs, image) ? 0 : -1;
+    return disk_write(0, secs, image) ? 0 : -1;
 }
 
 static int fs_load(void) {
-    if (!ata_ok()) return -1;
-    if (!ata_read(0, 1, image)) return -1;
+    if (!disk_ok()) return -1;
+    if (!disk_read(0, 1, image)) return -1;
     if (memcmp(image, FS_MAGIC, 8) != 0) return -1;
     uint32_t total = gu32(image, 8);
     if (total < 16 || total > FS_CAP) return -1;
     uint32_t secs = (total + 511) / 512;
-    if (!ata_read(0, secs, image)) return -1;
+    if (!disk_read(0, secs, image)) return -1;
     vfs_reset();                                    // efface l'arborescence par defaut
     size_t o = 12; uint32_t cnt = gu32(image, o); o += 4;
     for (uint32_t i = 0; i < cnt; i++) o = deser_node(vfs_root(), image, o, total);
@@ -102,7 +118,7 @@ static int fs_load(void) {
 }
 
 void fs_init(void) {
-    if (!ata_init()) {
+    if (!disk_init()) {
         kprintf("[fs] aucun disque : systeme de fichiers en RAM (non persistant)\n");
         return;
     }
