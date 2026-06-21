@@ -15,6 +15,7 @@ enum {
     WMSG_CLOSE   = 12,  // comp -> app : {win} (l'utilisateur a cliqué fermer)
     WMSG_RESIZE  = 13,  // comp -> app : {win, shm, w, h} (nouvelle taille + tampon)
     WMSG_LAUNCH  = 14,  // app -> comp : {w = app_id} (demande de lancer une appli)
+    WMSG_WALLPAPER = 15,// app -> comp : fond d'ecran = fichier image (chemin via sys_arg_set)
 };
 
 typedef struct {

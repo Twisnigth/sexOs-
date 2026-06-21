@@ -28,7 +28,8 @@
 #define APP_PAINT       7
 #define APP_IMGVIEW     8
 #define APP_EDITOR      9
-#define APP_COUNT       10
+#define APP_SNAKE       10
+#define APP_COUNT       11
 
 // --- IPC : messagerie + mémoire partagée -------------------------------------
 #define SYS_ipc_send    0x220      // ipc_send(dest_pid, buf, len)

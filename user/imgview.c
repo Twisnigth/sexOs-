@@ -88,8 +88,10 @@ static void redraw(void) {
     canvas_fill_rect(cv, 0, 0, cv->width, TOOLH, rgb(0x22, 0x26, 0x32));
     canvas_fill_rect(cv, 4, 3, 80, 18, rgb(0x3a, 0x42, 0x58));
     canvas_draw_string(cv, "Actualiser", 8, 8, rgb(0xff,0xff,0xff), 1);
-    if (status[0]) canvas_draw_string(cv, status, 92, 8, rgb(0xc8,0xd0,0xdc), 1);
-    else if (sel >= 0) canvas_draw_string(cv, basename(files[sel]), 92, 8, rgb(0xc8,0xd0,0xdc), 1);
+    canvas_fill_rect(cv, 90, 3, 96, 18, sel >= 0 ? rgb(0x2d,0x6c,0xdf) : rgb(0x2a,0x2e,0x38));
+    canvas_draw_string(cv, "Fond d'ecran", 96, 8, rgb(0xff,0xff,0xff), 1);
+    if (status[0]) canvas_draw_string(cv, status, 196, 8, rgb(0xc8,0xd0,0xdc), 1);
+    else if (sel >= 0) canvas_draw_string(cv, basename(files[sel]), 196, 8, rgb(0xc8,0xd0,0xdc), 1);
     // liste des fichiers (gauche)
     canvas_fill_rect(cv, 0, TOOLH, LISTW, cv->height - TOOLH, rgb(0x14, 0x17, 0x1f));
     for (int i = 0; i < nfiles; i++) {
@@ -122,7 +124,11 @@ static void redraw(void) {
 
 static void on_mouse(const event_t *e) {
     if (!(e->buttons & MOUSE_LEFT)) return;
-    if (e->my < TOOLH) { if (e->mx >= 4 && e->mx < 84) { rescan(); redraw(); } return; }
+    if (e->my < TOOLH) {
+        if (e->mx >= 4 && e->mx < 84) { rescan(); redraw(); }
+        else if (e->mx >= 90 && e->mx < 186 && sel >= 0) { win_wallpaper(files[sel]); strcpy(status, "fond d'ecran defini"); redraw(); }
+        return;
+    }
     if (e->mx < LISTW) {
         int idx = (e->my - TOOLH - 4 + 2) / 18;
         if (idx >= 0 && idx < nfiles) { load(idx); redraw(); }

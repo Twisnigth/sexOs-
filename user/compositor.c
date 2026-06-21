@@ -10,10 +10,15 @@
 #include "sexos.h"
 #include "gfx.h"
 #include "wproto.h"
+#include "imgdec.h"
 
 void *memset(void *, int, unsigned long);
+void *malloc(unsigned long);
+char *strcpy(char *, const char *);
 
 void utoa(unsigned long, char *);
+
+#define WALL_PREF "/home/user/.wallpaper"   // memorise le chemin du fond d'ecran
 
 typedef struct { uint8_t second, minute, hour, day, month; uint16_t year; } rtct_t;
 
@@ -64,6 +69,7 @@ static const struct { const char *name; int app; uint32_t icon; } g_menu[] = {
     { "Dessin",       APP_PAINT,    0xf060a0 },
     { "Images",       APP_IMGVIEW,  0x60c0f0 },
     { "Editeur",      APP_EDITOR,   0x9ad06a },
+    { "Snake",        APP_SNAKE,    0x4cc06a },
 };
 #define NMENU  ((int)(sizeof g_menu / sizeof g_menu[0]))
 static const char *app_name(int app) {
@@ -338,6 +344,52 @@ static void build_wallpaper(void) {
     }
 }
 
+// Décode 'path' et le met à l'échelle « cover » (remplit l'écran, recadre) dans
+// le tampon du fond d'écran. Renvoie 0 si OK, -1 sinon (le dégradé est conservé).
+#define WP_MAXW 1280
+#define WP_MAXH 1024
+static int set_wallpaper_image(const char *path) {
+    static uint8_t *fbuf; static uint32_t *ibuf;
+    if (!fbuf) fbuf = malloc(6u << 20);
+    if (!ibuf) ibuf = malloc((unsigned long)WP_MAXW * WP_MAXH * 4);
+    if (!fbuf || !ibuf) return -1;
+    vfs_io_t io = { path, 0, fbuf, 6u << 20 };
+    long n = sys_vfs_read(&io);
+    if (n <= 0) return -1;
+    int iw, ih;
+    if (!img_decode(fbuf, (int)n, ibuf, WP_MAXW, WP_MAXH, &iw, &ih)) return -1;
+    int W = (int)wall.width, H = (int)wall.height;
+    long scale = ((long)W << 16) / iw, s2 = ((long)H << 16) / ih;
+    if (s2 > scale) scale = s2;                       // « cover » : le plus grand facteur
+    if (scale < 1) scale = 1;
+    int sw = (int)(((long)iw * scale) >> 16), sh = (int)(((long)ih * scale) >> 16);
+    int ox = (W - sw) / 2, oy = (H - sh) / 2;
+    for (int y = 0; y < H; y++) {
+        int syy = (int)((((long)(y - oy)) << 16) / scale);
+        if (syy < 0) syy = 0; if (syy >= ih) syy = ih - 1;
+        for (int x = 0; x < W; x++) {
+            int sxx = (int)((((long)(x - ox)) << 16) / scale);
+            if (sxx < 0) sxx = 0; if (sxx >= iw) sxx = iw - 1;
+            wall.pixels[y * wall.width + x] = ibuf[syy * iw + sxx];
+        }
+    }
+    return 0;
+}
+
+// Mémorise / restaure le choix de fond d'écran (persiste si un disque est présent).
+static void save_wallpaper_pref(const char *path) {
+    sys_vfs_create(WALL_PREF, 0);
+    vfs_io_t io = { WALL_PREF, 0, (void *)path, (uint64_t)0 };
+    unsigned long l = 0; while (path[l]) l++; io.len = l;
+    sys_vfs_save(&io);
+}
+static void load_wallpaper_pref(void) {
+    static char path[256];
+    vfs_io_t io = { WALL_PREF, 0, path, sizeof(path) - 1 };
+    long n = sys_vfs_read(&io);
+    if (n > 0) { path[n] = 0; set_wallpaper_image(path); }
+}
+
 int main(void) {
     sys_comp_register();
     fbinfo_t fb; if (sys_fb_map(&fb)) return 1;
@@ -350,6 +402,7 @@ int main(void) {
     wall.pixels = (uint32_t *)sys_alloc((unsigned long)wall.pitch * wall.height);
     if (!wall.pixels) return 2;
     build_wallpaper();
+    load_wallpaper_pref();                 // restaure un fond d'ecran personnalise s'il existe
 
     int cx = fb.width / 2, cy = fb.height / 2, prevb = 0;
     int drag = -1, ddx = 0, ddy = 0;
@@ -372,6 +425,12 @@ int main(void) {
                 if (w) { need_recompose = 1; dirty_add(w->x, w->y, w->w, w->h + TB); }
             } else if (msg.type == WMSG_LAUNCH) {           // une appli demande d'en lancer une autre
                 if (msg.w >= 0 && msg.w < APP_COUNT) { sys_spawn(msg.w); notify(app_name(msg.w)); }
+            } else if (msg.type == WMSG_WALLPAPER) {        // changer le fond d'ecran
+                static char wp[256];
+                if (sys_arg_get(wp, sizeof wp) > 0 && wp[0] && set_wallpaper_image(wp) == 0) {
+                    save_wallpaper_pref(wp); notify("fond d'ecran applique");
+                } else notify("image de fond illisible");
+                need_recompose = 1; dirty_full();
             }
         }
 

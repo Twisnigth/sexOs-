@@ -114,9 +114,9 @@ $(OBJDIR)/desktop.elf: $(DESKTOP_OBJS) user/user.ld
 
 # --- Compositeur (serveur) + applications, chacun un PROCESSUS séparé ---------
 $(OBJDIR)/compositor.elf: $(OBJDIR)/u_crt0.o $(OBJDIR)/u_compositor.o \
-                          $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o user/user.ld
+                          $(OBJDIR)/u_imgdec.o $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_crt0.o $(OBJDIR)/u_compositor.o \
-	      $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o
+	      $(OBJDIR)/u_imgdec.o $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o
 # Modèle commun aux applications clientes (libwin + urt + gfx).
 APPLIBS := $(OBJDIR)/u_crt0.o $(OBJDIR)/u_libwin.o $(OBJDIR)/u_urt.o $(OBJDIR)/uk_gfx.o
 $(OBJDIR)/app_clock.elf: $(OBJDIR)/u_app_clock.o $(APPLIBS) user/user.ld
@@ -147,6 +147,8 @@ $(OBJDIR)/imgview.elf: $(OBJDIR)/u_imgview.o $(OBJDIR)/u_imgdec.o $(APPLIBS) use
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_imgview.o $(OBJDIR)/u_imgdec.o $(APPLIBS)
 $(OBJDIR)/editor.elf: $(OBJDIR)/u_editor.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_editor.o $(APPLIBS)
+$(OBJDIR)/snake.elf: $(OBJDIR)/u_snake.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_snake.o $(APPLIBS)
 # Monocypher recompilé pour l'espace utilisateur (X25519, ChaCha20, Poly1305).
 $(OBJDIR)/u_monocypher.o: $(MCDIR)/monocypher.c
 	@mkdir -p $(OBJDIR)
@@ -167,7 +169,7 @@ $(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
                             $(OBJDIR)/term.elf $(OBJDIR)/files.elf \
                             $(OBJDIR)/monitor.elf $(OBJDIR)/web.elf \
                             $(OBJDIR)/settings.elf $(OBJDIR)/calc.elf $(OBJDIR)/paint.elf \
-                            $(OBJDIR)/imgview.elf $(OBJDIR)/editor.elf
+                            $(OBJDIR)/imgview.elf $(OBJDIR)/editor.elf $(OBJDIR)/snake.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

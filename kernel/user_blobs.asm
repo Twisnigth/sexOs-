@@ -43,6 +43,8 @@ global uimgview_start
 global uimgview_end
 global ueditor_start
 global ueditor_end
+global usnake_start
+global usnake_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -82,5 +84,7 @@ uimgview_start:     incbin "build/obj/imgview.elf"
 uimgview_end:
 ueditor_start:      incbin "build/obj/editor.elf"
 ueditor_end:
+usnake_start:       incbin "build/obj/snake.elf"
+usnake_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits

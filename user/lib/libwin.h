@@ -22,6 +22,9 @@ void win_damage(void);
 // éventuel (chemin) via sys_arg_set AVANT d'appeler ceci.
 void win_launch(int app);
 
+// Définit le fond d'écran du bureau à partir d'un fichier image (PNG/JPEG/BMP/PPM).
+void win_wallpaper(const char *path);
+
 // Récupère un événement routé vers cette fenêtre.
 //  1  = événement disponible (rempli dans *ev)
 //  0  = rien pour l'instant
