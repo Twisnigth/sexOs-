@@ -83,7 +83,6 @@ extern uint8_t ucalc_start[],  ucalc_end[];
 extern uint8_t upaint_start[], upaint_end[];
 extern uint8_t uimgview_start[], uimgview_end[];
 extern uint8_t ueditor_start[], ueditor_end[];
-extern uint8_t usnake_start[], usnake_end[];
 static const struct { const char *name; uint8_t *start, *end; } g_apps[] = {
     { "terminal",    uterm_start,     uterm_end     },
     { "explorateur", ufiles_start,    ufiles_end    },
@@ -95,7 +94,6 @@ static const struct { const char *name; uint8_t *start, *end; } g_apps[] = {
     { "dessin",      upaint_start,    upaint_end    },
     { "visionneuse", uimgview_start,  uimgview_end  },
     { "editeur",     ueditor_start,   ueditor_end   },
-    { "snake",       usnake_start,    usnake_end    },
 };
 
 // Mappe les pages de 'o' dans l'espace courant à une VA libre de la tâche.

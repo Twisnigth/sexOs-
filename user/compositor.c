@@ -69,7 +69,6 @@ static const struct { const char *name; int app; uint32_t icon; } g_menu[] = {
     { "Dessin",       APP_PAINT,    0xf060a0 },
     { "Images",       APP_IMGVIEW,  0x60c0f0 },
     { "Editeur",      APP_EDITOR,   0x9ad06a },
-    { "Snake",        APP_SNAKE,    0x4cc06a },
 };
 #define NMENU  ((int)(sizeof g_menu / sizeof g_menu[0]))
 static const char *app_name(int app) {
