@@ -126,16 +126,21 @@ static void cmd_push(uint64_t param, uint32_t status, uint32_t control) {
 static int cmd_exec(uint64_t param, uint32_t control, uint8_t *slot_out) {
     cmd_push(param, 0, control);
     trb_t e;
-    if (!next_event(&e, 60000)) {
-        kprintf("[xhci] cmd timeout: USBSTS=%x USBCMD=%x CRCR_lo=%x evt[0]=%x/%x/%x ERDP_lo=%x IMAN=%x\n",
-                rd32(op, O_USBSTS), rd32(op, O_USBCMD), rd32(op, O_CRCR),
-                (uint32_t)evt_ring[0].param, evt_ring[0].status, evt_ring[0].control,
-                rd32(rt, R_ERDP), rd32(rt, 0x20));
-        return 0;
+    // L'anneau d'evenements est PARTAGE : on ignore les evenements non lies
+    // (ex: Port Status Change) jusqu'a recevoir le Command Completion.
+    for (int skip = 0; skip < 32; skip++) {
+        if (!next_event(&e, 60000)) {
+            kprintf("[xhci] cmd timeout: USBSTS=%x USBCMD=%x CRCR_lo=%x ERDP_lo=%x\n",
+                    rd32(op, O_USBSTS), rd32(op, O_USBCMD), rd32(op, O_CRCR), rd32(rt, R_ERDP));
+            return 0;
+        }
+        if (((e.control >> 10) & 0x3F) == TR_CMD_COMPLETE) {
+            if (slot_out) *slot_out = (e.control >> 24) & 0xFF;
+            return (e.status >> 24) & 0xFF;    // completion code (1 = success)
+        }
+        // autre evenement -> on continue a scruter
     }
-    if (((e.control >> 10) & 0x3F) != TR_CMD_COMPLETE) return 0;
-    if (slot_out) *slot_out = (e.control >> 24) & 0xFF;
-    return (e.status >> 24) & 0xFF;        // completion code (1 = success)
+    return 0;
 }
 
 // =============================================================================
@@ -167,8 +172,15 @@ static int control_in(trb_t *ep0_ring, uint64_t ep0_phys, int *ep0_idx, uint8_t 
     *ep0_idx = i; *ep0_cycle = cy;
     db[slot] = 1;                           // sonnette EP0 du slot
     trb_t e;
-    if (!next_event(&e, 60000)) return -1;
-    return ((e.status >> 24) & 0xFF) == 1 ? 0 : -1;
+    // attend le Transfer Event (type 32) lie a EP0, en ignorant le reste.
+    for (int skip = 0; skip < 32; skip++) {
+        if (!next_event(&e, 60000)) return -1;
+        if (((e.control >> 10) & 0x3F) == TR_TRANSFER) {
+            uint8_t cc = (e.status >> 24) & 0xFF;   // 1=Success, 13=Short Packet (ok)
+            return (cc == 1 || cc == 13) ? 0 : -1;
+        }
+    }
+    return -1;
 }
 
 // =============================================================================
