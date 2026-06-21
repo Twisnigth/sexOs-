@@ -27,7 +27,8 @@
 #define APP_CALC        6
 #define APP_PAINT       7
 #define APP_IMGVIEW     8
-#define APP_COUNT       9
+#define APP_EDITOR      9
+#define APP_COUNT       10
 
 // --- IPC : messagerie + mémoire partagée -------------------------------------
 #define SYS_ipc_send    0x220      // ipc_send(dest_pid, buf, len)
@@ -87,6 +88,8 @@
 // --- Presse-papiers (copier/coller, partagé entre applications) ---------------
 #define SYS_clip_set    0x254      // (buf, len) : copie dans le presse-papiers
 #define SYS_clip_get    0x255      // (buf, max) -> taille copiée
+#define SYS_arg_set     0x263      // (chemin) : argument pour la prochaine appli lancée
+#define SYS_arg_get     0x264      // (buf, max) -> argument courant (ex. fichier à ouvrir)
 
 // --- Comptes / permissions ---------------------------------------------------
 #define SYS_whoami      0x240      // (*userinfo)

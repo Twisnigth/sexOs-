@@ -18,6 +18,10 @@ void win_set_resizable(int on);
 // Signale au compositeur que le tampon a été redessiné (à recomposer).
 void win_damage(void);
 
+// Demande au compositeur de lancer une application (APP_*). Pose l'argument
+// éventuel (chemin) via sys_arg_set AVANT d'appeler ceci.
+void win_launch(int app);
+
 // Récupère un événement routé vers cette fenêtre.
 //  1  = événement disponible (rempli dans *ev)
 //  0  = rien pour l'instant

@@ -63,8 +63,13 @@ static const struct { const char *name; int app; uint32_t icon; } g_menu[] = {
     { "Calculatrice", APP_CALC,     0xf0a020 },
     { "Dessin",       APP_PAINT,    0xf060a0 },
     { "Images",       APP_IMGVIEW,  0x60c0f0 },
+    { "Editeur",      APP_EDITOR,   0x9ad06a },
 };
 #define NMENU  ((int)(sizeof g_menu / sizeof g_menu[0]))
+static const char *app_name(int app) {
+    for (int k = 0; k < NMENU; k++) if (g_menu[k].app == app) return g_menu[k].name;
+    return "application";
+}
 #define MENU_W 178
 #define MENU_IH 26
 
@@ -365,6 +370,8 @@ int main(void) {
             } else if (msg.type == WMSG_DAMAGE) {           // le tampon de l'appli a changé
                 win_t *w = find(msg.win);
                 if (w) { need_recompose = 1; dirty_add(w->x, w->y, w->w, w->h + TB); }
+            } else if (msg.type == WMSG_LAUNCH) {           // une appli demande d'en lancer une autre
+                if (msg.w >= 0 && msg.w < APP_COUNT) { sys_spawn(msg.w); notify(app_name(msg.w)); }
             }
         }
 

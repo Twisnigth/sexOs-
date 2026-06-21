@@ -65,16 +65,26 @@ static void go_up(void) {
     sel = 0; reload();
 }
 
-// Ouvre l'entrée sélectionnée : dossier -> on y entre ; fichier -> aperçu.
+// Vrai si 'name' se termine par le suffixe 'suf' (insensible à la casse).
+static int has_ext(const char *name, const char *suf) {
+    int ls = (int)strlen(name), lf = (int)strlen(suf);
+    if (ls < lf) return 0;
+    for (int i = 0; i < lf; i++) { char a = name[ls-lf+i], b = suf[i]; if (a>='A'&&a<='Z') a+=32; if (a!=b) return 0; }
+    return 1;
+}
+static int is_image(const char *n) {
+    return has_ext(n,".png")||has_ext(n,".jpg")||has_ext(n,".jpeg")||has_ext(n,".bmp")||has_ext(n,".ppm");
+}
+
+// Ouvre l'entrée sélectionnée : dossier -> on y entre ; image -> visionneuse ;
+// sinon -> éditeur de texte (le fichier lui est transmis via sys_arg_set).
 static void open_selected(void) {
     if (sel < 0 || sel >= count) return;
     dirent_t *e = &ents[sel];
     char path[256]; join(e->name, path);
     if (e->type == 1) { strcpy(cwd, path); sel = 0; reload(); set_status(""); return; }
-    vfs_io_t io = { path, 0, preview, sizeof(preview) - 1 };
-    long n = sys_vfs_read(&io);
-    if (n < 0) { preview_len = 0; set_status("lecture impossible"); return; }
-    preview[n] = 0; preview_len = (int)n; set_status("apercu");
+    if (is_image(e->name)) { sys_arg_set(path); win_launch(APP_IMGVIEW); set_status("ouvre dans la visionneuse"); return; }
+    sys_arg_set(path); win_launch(APP_EDITOR); set_status("ouvre dans l'editeur");
 }
 
 static void do_delete(void) {

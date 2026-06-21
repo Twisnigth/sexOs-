@@ -81,6 +81,7 @@ extern uint8_t usettings_start[], usettings_end[];
 extern uint8_t ucalc_start[],  ucalc_end[];
 extern uint8_t upaint_start[], upaint_end[];
 extern uint8_t uimgview_start[], uimgview_end[];
+extern uint8_t ueditor_start[], ueditor_end[];
 static const struct { const char *name; uint8_t *start, *end; } g_apps[] = {
     { "terminal",    uterm_start,     uterm_end     },
     { "explorateur", ufiles_start,    ufiles_end    },
@@ -91,6 +92,7 @@ static const struct { const char *name; uint8_t *start, *end; } g_apps[] = {
     { "calculatrice", ucalc_start,    ucalc_end     },
     { "dessin",      upaint_start,    upaint_end    },
     { "visionneuse", uimgview_start,  uimgview_end  },
+    { "editeur",     ueditor_start,   ueditor_end   },
 };
 
 // Mappe les pages de 'o' dans l'espace courant à une VA libre de la tâche.
@@ -149,6 +151,7 @@ long syscall_dispatch(sysargs_t *a);     // défini plus bas
 // Presse-papiers global (copier/coller entre applications ring 3).
 static char g_clipboard[8192];
 static int  g_clip_len;
+static char g_spawn_arg[256];                 // chemin transmis a l'appli lancee (ex. editeur)
 
 // Point d'entrée unifié des appels système (cf. usermode.asm). Reçoit le
 // contexte complet de la tâche et renvoie le contexte à reprendre : la MÊME
@@ -518,6 +521,18 @@ long syscall_dispatch(sysargs_t *a) {
         if (n < 0) n = 0;
         memcpy((void *)a->rdi, g_clipboard, n);
         return n;
+    }
+    case SYS_arg_set: {                           // argument transmis a la prochaine appli
+        const char *s = (const char *)a->rdi; int i = 0;
+        if (s) while (s[i] && i < (int)sizeof(g_spawn_arg) - 1) { g_spawn_arg[i] = s[i]; i++; }
+        g_spawn_arg[i] = 0;
+        return 0;
+    }
+    case SYS_arg_get: {                           // lu (et consomme) par l'appli au demarrage
+        char *out = (char *)a->rdi; int max = (int)a->rsi, i = 0;
+        if (out && max > 0) { while (g_spawn_arg[i] && i < max - 1) { out[i] = g_spawn_arg[i]; i++; } out[i] = 0; }
+        g_spawn_arg[0] = 0;                        // consommation unique
+        return i;
     }
     case SYS_vfs_stat: {
         vfs_node_t *n = vfs_resolve((const char *)a->rdi);

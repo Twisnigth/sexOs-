@@ -8,12 +8,14 @@
 #include "sexos.h"
 #include "libwin.h"
 #include "gfx.h"
+#include "imgdec.h"
 
 void utoa(unsigned long, char *);
 unsigned long strlen(const char *);
 int strcmp(const char *, const char *);
 char *strcpy(char *, const char *);
 char *strcat(char *, const char *);
+void *malloc(unsigned long);
 
 static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) { return ((uint32_t)r<<16)|((uint32_t)g<<8)|b; }
 
@@ -22,57 +24,15 @@ static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) { return ((uint32_t)
 #define MAXF  64
 #define MAXW  1280
 #define MAXH  1024
+#define FILEBUF_CAP (6u << 20)               // 6 Mio (couvre un PPM 1280x1024)
 
 static canvas_t *cv;
-static uint8_t   filebuf[1 << 20];          // fichier brut (1 Mio max)
-static uint32_t  img[MAXW * MAXH];          // pixels decodes
-static int       img_w, img_h;              // dimensions de l'image courante
-static char      files[MAXF][96];           // chemins complets des images trouvees
+static uint8_t  *filebuf;                     // fichier brut (alloue sur le tas)
+static uint32_t *img;                         // pixels decodes (MAXW*MAXH)
+static int       img_w, img_h;               // dimensions de l'image courante
+static char      files[MAXF][96];            // chemins complets des images trouvees
 static int       nfiles, sel = -1;
 static char      status[80];
-
-// --- decodage ----------------------------------------------------------------
-static uint32_t le32(const uint8_t *p) { return p[0]|(p[1]<<8)|(p[2]<<16)|((uint32_t)p[3]<<24); }
-
-static int decode_bmp(const uint8_t *d, int n) {
-    if (n < 54 || d[0] != 'B' || d[1] != 'M') return 0;
-    uint32_t off = le32(d + 10);
-    int w = (int)le32(d + 18), h = (int)le32(d + 22);
-    int bpp = d[28] | (d[29] << 8);
-    if (bpp != 24 || w <= 0 || w > MAXW) return 0;
-    int flip = h > 0; if (h < 0) h = -h;
-    if (h <= 0 || h > MAXH) return 0;
-    int rowsz = (w * 3 + 3) & ~3;
-    for (int y = 0; y < h; y++) {
-        int sy = flip ? (h - 1 - y) : y;
-        const uint8_t *row = d + off + (uint32_t)sy * rowsz;
-        if (row + w*3 > d + n) break;
-        for (int x = 0; x < w; x++)
-            img[y * w + x] = rgb(row[x*3+2], row[x*3+1], row[x*3+0]);  // BGR -> RGB
-    }
-    img_w = w; img_h = h; return 1;
-}
-
-static int decode_ppm(const uint8_t *d, int n) {
-    if (n < 10 || d[0] != 'P' || d[1] != '6') return 0;
-    int i = 2, v[3], k = 0;
-    while (k < 3 && i < n) {
-        while (i < n && (d[i]==' '||d[i]=='\n'||d[i]=='\t'||d[i]=='\r')) i++;
-        if (d[i]=='#') { while (i<n && d[i]!='\n') i++; continue; }
-        int s = i; while (i<n && d[i]>' ') i++;
-        int val = 0; for (int j=s;j<i;j++) val = val*10 + (d[j]-'0'); v[k++] = val;
-    }
-    i++;  // un seul blanc apres maxval
-    int w = v[0], h = v[1];
-    if (w <= 0 || w > MAXW || h <= 0 || h > MAXH) return 0;
-    for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++) {
-            int o = i + (y*w + x)*3;
-            if (o+2 >= n) { img_w=w; img_h=y; return 1; }
-            img[y*w + x] = rgb(d[o], d[o+1], d[o+2]);
-        }
-    img_w = w; img_h = h; return 1;
-}
 
 static void gen_demo(void) {       // image de demonstration (degrade + damier)
     img_w = 256; img_h = 192;
@@ -96,7 +56,8 @@ static void scan_dir(const char *dir) {
     dirent_t e;
     for (int i = 0; nfiles < MAXF && sys_vfs_list(dir, i, &e) == 1; i++) {
         if (e.type != 0) continue;
-        if (!ends_with(e.name, ".bmp") && !ends_with(e.name, ".ppm")) continue;
+        if (!ends_with(e.name, ".png") && !ends_with(e.name, ".jpg") && !ends_with(e.name, ".jpeg") &&
+            !ends_with(e.name, ".bmp") && !ends_with(e.name, ".ppm")) continue;
         char *p = files[nfiles];
         strcpy(p, dir); if (strcmp(dir, "/") != 0) strcat(p, "/"); strcat(p, e.name);
         nfiles++;
@@ -109,11 +70,11 @@ static void rescan(void) {
 
 static void load(int idx) {
     if (idx < 0 || idx >= nfiles) return;
-    vfs_io_t io = { files[idx], 0, filebuf, sizeof(filebuf) };
+    vfs_io_t io = { files[idx], 0, filebuf, FILEBUF_CAP };
     long n = sys_vfs_read(&io);
     if (n <= 0) { strcpy(status, "lecture impossible"); return; }
-    int ok = decode_bmp(filebuf, (int)n) || decode_ppm(filebuf, (int)n);
-    if (!ok) { strcpy(status, "format non reconnu (BMP24/PPM)"); img_w = img_h = 0; return; }
+    int ok = img_decode(filebuf, (int)n, img, MAXW, MAXH, &img_w, &img_h);
+    if (!ok) { strcpy(status, "format non gere (PNG/JPEG/BMP/PPM, max 1280x1024)"); img_w = img_h = 0; sel = idx; return; }
     sel = idx; strcpy(status, "");
 }
 
@@ -169,11 +130,22 @@ static void on_mouse(const event_t *e) {
 }
 
 int main(void) {
+    filebuf = malloc(FILEBUF_CAP);
+    img = malloc((unsigned long)MAXW * MAXH * 4);
+    if (!filebuf || !img) return 1;
     win_set_resizable(1);
     cv = win_create(520, 380, "Visionneuse d'images");
     if (!cv) return 1;
     gen_demo();
     rescan();
+    // Fichier transmis par l'explorateur : le sélectionner (ou l'ajouter) et l'ouvrir.
+    char arg[256];
+    if (sys_arg_get(arg, sizeof arg) > 0 && arg[0]) {
+        int idx = -1;
+        for (int i = 0; i < nfiles; i++) if (strcmp(files[i], arg) == 0) { idx = i; break; }
+        if (idx < 0 && nfiles < MAXF) { strcpy(files[nfiles], arg); idx = nfiles++; }
+        if (idx >= 0) load(idx);
+    }
     redraw();
     for (;;) {
         event_t e; int r = win_wait(&e);

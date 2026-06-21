@@ -41,6 +41,8 @@ global upaint_start
 global upaint_end
 global uimgview_start
 global uimgview_end
+global ueditor_start
+global ueditor_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -78,5 +80,7 @@ upaint_start:       incbin "build/obj/paint.elf"
 upaint_end:
 uimgview_start:     incbin "build/obj/imgview.elf"
 uimgview_end:
+ueditor_start:      incbin "build/obj/editor.elf"
+ueditor_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits

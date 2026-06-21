@@ -14,6 +14,7 @@ enum {
     WMSG_EVENT   = 11,  // comp -> app : {win, ev} (entrée routée vers le focus)
     WMSG_CLOSE   = 12,  // comp -> app : {win} (l'utilisateur a cliqué fermer)
     WMSG_RESIZE  = 13,  // comp -> app : {win, shm, w, h} (nouvelle taille + tampon)
+    WMSG_LAUNCH  = 14,  // app -> comp : {w = app_id} (demande de lancer une appli)
 };
 
 typedef struct {

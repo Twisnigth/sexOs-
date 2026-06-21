@@ -143,8 +143,10 @@ $(OBJDIR)/calc.elf: $(OBJDIR)/u_calc.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_calc.o $(APPLIBS)
 $(OBJDIR)/paint.elf: $(OBJDIR)/u_paint.o $(APPLIBS) user/user.ld
 	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_paint.o $(APPLIBS)
-$(OBJDIR)/imgview.elf: $(OBJDIR)/u_imgview.o $(APPLIBS) user/user.ld
-	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_imgview.o $(APPLIBS)
+$(OBJDIR)/imgview.elf: $(OBJDIR)/u_imgview.o $(OBJDIR)/u_imgdec.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_imgview.o $(OBJDIR)/u_imgdec.o $(APPLIBS)
+$(OBJDIR)/editor.elf: $(OBJDIR)/u_editor.o $(APPLIBS) user/user.ld
+	$(LD) $(ULDFLAGS) -o $@ $(OBJDIR)/u_editor.o $(APPLIBS)
 # Monocypher recompilé pour l'espace utilisateur (X25519, ChaCha20, Poly1305).
 $(OBJDIR)/u_monocypher.o: $(MCDIR)/monocypher.c
 	@mkdir -p $(OBJDIR)
@@ -165,7 +167,7 @@ $(OBJDIR)/user_blobs_asm.o: $(KDIR)/user_blobs.asm $(UTEST_BINS) \
                             $(OBJDIR)/term.elf $(OBJDIR)/files.elf \
                             $(OBJDIR)/monitor.elf $(OBJDIR)/web.elf \
                             $(OBJDIR)/settings.elf $(OBJDIR)/calc.elf $(OBJDIR)/paint.elf \
-                            $(OBJDIR)/imgview.elf
+                            $(OBJDIR)/imgview.elf $(OBJDIR)/editor.elf
 	@mkdir -p $(OBJDIR)
 	$(ASM) -f elf64 $< -o $@
 

@@ -4,6 +4,7 @@
 #include "vfs.h"
 #include "heap.h"
 #include "klib.h"
+#include "sample_img.h"
 
 static vfs_node_t *root;
 
@@ -180,7 +181,13 @@ void vfs_init(void) {
     vfs_node_t *home = vfs_create(root, "home", VFS_DIR);
     vfs_node_t *user = vfs_create(home, "user", VFS_DIR);
     vfs_node_t *docs = vfs_create(user, "Documents", VFS_DIR);
-    vfs_create(user, "Images", VFS_DIR);
+    vfs_node_t *images = vfs_create(user, "Images", VFS_DIR);
+
+    // Image d'exemple (PNG) pour la visionneuse.
+    {
+        vfs_node_t *im = vfs_create(images, "exemple.png", VFS_FILE);
+        vfs_replace(im, sample_png, sample_png_len);
+    }
 
     // Dossier SSH : .ssh/authorized_keys (vide) — pret a recevoir des cles
     //  publiques (commande "pubkey-add" du terminal ou du shell distant).

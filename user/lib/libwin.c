@@ -57,6 +57,14 @@ void win_damage(void) {
     sys_ipc_send(comp_pid, &m, sizeof m);
 }
 
+// Demande au compositeur de lancer une application (lui seul peut spawn).
+// L'éventuel argument (chemin de fichier) doit être posé via sys_arg_set avant.
+void win_launch(int app) {
+    wmsg_t m; memset(&m, 0, sizeof m);
+    m.type = WMSG_LAUNCH; m.w = app;
+    sys_ipc_send(comp_pid, &m, sizeof m);
+}
+
 int win_poll(event_t *ev) {
     wmsg_t r; int s;
     int n = sys_ipc_recv(&r, sizeof r, &s);
