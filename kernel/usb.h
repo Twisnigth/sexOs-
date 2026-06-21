@@ -17,6 +17,7 @@ typedef struct {
 } usb_dev_t;
 
 void  usb_init(void);                       // detecte le xHCI et enumere
+void  usb_task(void);                        // tache noyau : scrute les HID (clavier/souris)
 int   usb_count(void);
 const usb_dev_t *usb_get(int i);
 

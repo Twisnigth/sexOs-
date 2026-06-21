@@ -14,6 +14,8 @@
 #include "vmm.h"
 #include "pit.h"
 #include "klib.h"
+#include "input.h"
+#include "framebuffer.h"
 
 // --- TRB (Transfer Request Block) : 16 octets --------------------------------
 typedef struct { uint64_t param; uint32_t status; uint32_t control; } __attribute__((packed)) trb_t;
@@ -27,6 +29,7 @@ typedef struct { uint64_t param; uint32_t status; uint32_t control; } __attribut
 #define TR_LINK          6
 #define TR_ENABLE_SLOT   9
 #define TR_ADDRESS_DEV   11
+#define TR_CONFIG_EP     12
 #define TR_CMD_COMPLETE  33
 #define TR_PORT_STATUS   34
 #define TR_TRANSFER      32
@@ -49,6 +52,46 @@ static int dev_count;
 
 int usb_count(void) { return dev_count; }
 const usb_dev_t *usb_get(int i) { return (i >= 0 && i < dev_count) ? &devs[i] : NULL; }
+
+// --- etat par peripherique (indexe par slot) : contextes + EP0 + EP HID -------
+typedef struct {
+    bool     used;
+    uint8_t  slot, speed, port;
+    trb_t   *ep0;     uint64_t ep0_phys;  int ep0_idx;  uint8_t ep0_cycle;
+    uint8_t *inctx;   uint64_t in_phys;
+    // endpoint d'interruption IN (clavier/souris HID)
+    bool     is_hid, is_kbd, is_mouse;
+    uint8_t  ep_dci;  uint16_t ep_mps;  uint8_t ep_interval;
+    trb_t   *ep_ring; uint64_t ep_ring_phys; int ep_idx; uint8_t ep_cycle;
+    uint8_t *rbuf;    uint64_t rbuf_phys;
+    uint8_t  prev[8];                 // dernier rapport clavier (detection des appuis)
+    int32_t  mx, my;                  // position souris
+} xdev_t;
+static xdev_t xdevs[16];              // indexe par numero de slot (1..max_slots)
+
+// --- USB HID usage -> caractere, disposition AZERTY (alignee sur ps2.c) -------
+//  Les codes "usage" HID sont positionnels (clavier US physique). On les remappe
+//  vers l'AZERTY exactement comme la table scancode du pilote PS/2.
+static const char hid2az[256] = {
+    [0x1E]='1',[0x1F]='2',[0x20]='3',[0x21]='4',[0x22]='5',[0x23]='6',[0x24]='7',[0x25]='8',[0x26]='9',[0x27]='0',
+    [0x2D]='-',[0x2E]='=',
+    [0x14]='a',[0x1A]='z',[0x08]='e',[0x15]='r',[0x17]='t',[0x1C]='y',[0x18]='u',[0x0C]='i',[0x12]='o',[0x13]='p',
+    [0x2F]='<',[0x30]='>',
+    [0x04]='q',[0x16]='s',[0x07]='d',[0x09]='f',[0x0A]='g',[0x0B]='h',[0x0D]='j',[0x0E]='k',[0x0F]='l',[0x33]='m',
+    [0x34]='\'',[0x35]='`',
+    [0x1D]='w',[0x1B]='x',[0x06]='c',[0x19]='v',[0x05]='b',[0x11]='n',[0x10]=',',[0x36]=';',[0x37]=':',[0x38]='!',
+    [0x64]='\\', [0x2C]=' ',
+};
+static const char hid2az_shift[256] = {
+    [0x1E]='!',[0x1F]='@',[0x20]='#',[0x21]='$',[0x22]='%',[0x23]='^',[0x24]='&',[0x25]='*',[0x26]='(',[0x27]=')',
+    [0x2D]='_',[0x2E]='+',
+    [0x14]='A',[0x1A]='Z',[0x08]='E',[0x15]='R',[0x17]='T',[0x1C]='Y',[0x18]='U',[0x0C]='I',[0x12]='O',[0x13]='P',
+    [0x2F]='{',[0x30]='}',
+    [0x04]='Q',[0x16]='S',[0x07]='D',[0x09]='F',[0x0A]='G',[0x0B]='H',[0x0D]='J',[0x0E]='K',[0x0F]='L',[0x33]='M',
+    [0x34]='"',[0x35]='~',
+    [0x1D]='W',[0x1B]='X',[0x06]='C',[0x19]='V',[0x05]='B',[0x11]='N',[0x10]='?',[0x36]='.',[0x37]='/',[0x38]='!',
+    [0x64]='|', [0x2C]=' ',
+};
 
 // --- acces registres ---------------------------------------------------------
 static inline uint32_t rd32(volatile uint8_t *b, uint32_t o) { return *(volatile uint32_t *)(b + o); }
@@ -236,16 +279,25 @@ static void enumerate_port(int port) {
     uint16_t pid = buf[10] | (buf[11] << 8);
     uint8_t  dclass = buf[4];
 
-    // 5) GET_DESCRIPTOR (config) -> classe de la 1re interface
-    uint8_t iclass = 0;
+    // 5) GET_DESCRIPTOR (config) -> classe d'interface + endpoint d'interruption
+    uint8_t iclass = 0, iproto = 0;
+    uint8_t ep_addr = 0; uint16_t ep_mps = 8; uint8_t ep_interval = 6;
     memset(buf, 0, 64);
     if (control_in(ep0_ring, ep0_phys, &ep0_idx, &ep0_cycle, slot,
                    0x80, 6, 0x0200, 0, 64, buf_phys) == 0) {
-        // parcourt les descripteurs : cherche le 1er Interface (type 4)
+        // parcourt les descripteurs : Interface (type 4) puis Endpoint (type 5)
         int total = buf[2] | (buf[3] << 8); if (total > 64) total = 64;
-        for (int o = buf[0]; o + 1 < total; o += buf[o]) {
-            if (buf[o] == 0) break;
-            if (buf[o+1] == 4) { iclass = buf[o+5]; break; }   // bInterfaceClass
+        for (int o = buf[0]; o + 1 < total && buf[o]; o += buf[o]) {
+            if (buf[o+1] == 4) {                          // Interface
+                if (iclass == 0) { iclass = buf[o+5]; iproto = buf[o+7]; }
+            } else if (buf[o+1] == 5) {                   // Endpoint
+                uint8_t addr = buf[o+2], attr = buf[o+3];
+                if ((attr & 3) == 3 && (addr & 0x80) && !ep_addr) {  // Interrupt IN
+                    ep_addr = addr;
+                    ep_mps  = buf[o+4] | (buf[o+5] << 8);
+                    ep_interval = buf[o+6];
+                }
+            }
         }
     }
 
@@ -256,6 +308,193 @@ static void enumerate_port(int port) {
     }
     kprintf("[xhci] port %d : peripherique %x:%x classe=%x (slot %d)\n",
             port, vid, pid, iclass ? iclass : dclass, slot);
+
+    // memorise l'etat du peripherique (pour la configuration HID ulterieure)
+    if (slot < 16) {
+        xdev_t *x = &xdevs[slot];
+        x->used = true; x->slot = slot; x->speed = speed; x->port = port;
+        x->ep0 = ep0_ring; x->ep0_phys = ep0_phys; x->ep0_idx = ep0_idx; x->ep0_cycle = ep0_cycle;
+        x->inctx = inctx; x->in_phys = in_phys;
+        x->mx = (int32_t)fb_width() / 2; x->my = (int32_t)fb_height() / 2;
+        if (iclass == 3 && ep_addr) {                     // HID avec endpoint d'interruption
+            x->is_hid = true;
+            x->is_kbd = (iproto == 1);
+            x->is_mouse = (iproto == 2);
+            x->ep_dci = (uint8_t)(2 * (ep_addr & 0x0F) + 1); // EP num IN -> DCI
+            x->ep_mps = ep_mps; x->ep_interval = ep_interval;
+        }
+    }
+}
+
+// =============================================================================
+//  HID : configuration de l'endpoint d'interruption + scrutation des rapports
+// =============================================================================
+
+// Transfert de controle SANS etape de donnees (ex: SET_CONFIGURATION).
+static int control_nodata(xdev_t *x, uint8_t bmReq, uint8_t bReq,
+                          uint16_t wValue, uint16_t wIndex) {
+    uint64_t setup = (uint64_t)bmReq | ((uint64_t)bReq << 8) | ((uint64_t)wValue << 16)
+                   | ((uint64_t)wIndex << 32);
+    int i = x->ep0_idx; uint8_t cy = x->ep0_cycle;
+    x->ep0[i].param = setup; x->ep0[i].status = 8;
+    x->ep0[i].control = TRB_TYPE(TR_SETUP) | (0u << 16) /*TRT=No Data*/ | (1u << 6) /*IDT*/ | cy;
+    i++;
+    x->ep0[i].param = 0; x->ep0[i].status = 0;
+    x->ep0[i].control = TRB_TYPE(TR_STATUS) | (1u << 16) /*DIR=IN*/ | (1u << 5) /*IOC*/ | cy;
+    i++;
+    if (i >= RING_SZ - 1) {
+        x->ep0[RING_SZ-1].param = x->ep0_phys; x->ep0[RING_SZ-1].status = 0;
+        x->ep0[RING_SZ-1].control = TRB_TYPE(TR_LINK) | (1 << 1) | cy;
+        i = 0; cy ^= 1;
+    }
+    x->ep0_idx = i; x->ep0_cycle = cy;
+    db[x->slot] = 1;
+    trb_t e;
+    for (int skip = 0; skip < 32; skip++) {
+        if (!next_event(&e, 60000)) return -1;
+        if (((e.control >> 10) & 0x3F) == TR_TRANSFER) {
+            uint8_t cc = (e.status >> 24) & 0xFF;
+            return (cc == 1 || cc == 13) ? 0 : -1;
+        }
+    }
+    return -1;
+}
+
+// Arme un transfert d'interruption IN (le contrôleur le complete a l'arrivee
+// d'un rapport HID).
+static void queue_int_in(xdev_t *x) {
+    int i = x->ep_idx; uint8_t cy = x->ep_cycle;
+    x->ep_ring[i].param = x->rbuf_phys;
+    x->ep_ring[i].status = x->ep_mps;
+    x->ep_ring[i].control = TRB_TYPE(TR_NORMAL) | (1u << 5) /*IOC*/ | (1u << 2) /*ISP*/ | cy;
+    i++;
+    if (i >= RING_SZ - 1) {
+        x->ep_ring[RING_SZ-1].param = x->ep_ring_phys; x->ep_ring[RING_SZ-1].status = 0;
+        x->ep_ring[RING_SZ-1].control = TRB_TYPE(TR_LINK) | (1 << 1) | cy;
+        i = 0; cy ^= 1;
+    }
+    x->ep_idx = i; x->ep_cycle = cy;
+    db[x->slot] = x->ep_dci;
+}
+
+// Configure un peripherique HID : SET_CONFIGURATION, protocole boot, Configure
+// Endpoint (endpoint d'interruption), puis amorce la 1re scrutation.
+static void hid_setup(xdev_t *x) {
+    // SET_CONFIGURATION(1)
+    if (control_nodata(x, 0x00, 9, 1, 0) != 0) {
+        kprintf("[hid] slot %d : SET_CONFIGURATION echec\n", x->slot); return;
+    }
+    // SET_PROTOCOL(boot=0) sur l'interface 0 (classe HID) -- rapports "boot".
+    control_nodata(x, 0x21, 0x0B, 0, 0);
+
+    // anneau de transfert pour l'endpoint + tampon de rapport
+    x->ep_ring = dma_zeroed(4096, &x->ep_ring_phys); x->ep_idx = 0; x->ep_cycle = 1;
+    x->rbuf    = dma_zeroed(64, &x->rbuf_phys);
+    if (!x->ep_ring || !x->rbuf) return;
+
+    // Input Context : ajoute slot (A0) + l'endpoint (A[dci])
+    memset(x->inctx, 0, 2048);
+    *(uint32_t *)(x->inctx + 4) = 0x1u | (1u << x->ep_dci);     // Add flags
+    uint32_t *slotc = (uint32_t *)(x->inctx + 32);
+    slotc[0] = ((uint32_t)x->ep_dci << 27) | ((uint32_t)x->speed << 20);  // context entries
+    slotc[1] = (uint32_t)x->port << 16;
+    // EP context de l'endpoint d'interruption IN
+    uint32_t *epc = (uint32_t *)(x->inctx + 32 + (uint32_t)x->ep_dci * 32);
+    uint8_t interval = x->ep_interval ? x->ep_interval : 6;
+    epc[0] = ((uint32_t)interval << 16);
+    epc[1] = (7u << 3) /*type=Interrupt IN*/ | ((uint32_t)x->ep_mps << 16) | (3u << 1) /*CErr*/;
+    *(uint64_t *)(epc + 2) = x->ep_ring_phys | 1;              // TR dequeue | DCS
+    epc[4] = x->ep_mps;                                        // Average TRB Length
+
+    if (cmd_exec(x->in_phys, TRB_TYPE(TR_CONFIG_EP) | ((uint32_t)x->slot << 24), 0) != 1) {
+        kprintf("[hid] slot %d : Configure Endpoint echec\n", x->slot); return;
+    }
+    queue_int_in(x);
+    kprintf("[hid] slot %d pret : %s (dci=%d mps=%d)\n", x->slot,
+            x->is_kbd ? "clavier" : x->is_mouse ? "souris" : "HID", x->ep_dci, x->ep_mps);
+}
+
+// Traduit un rapport clavier "boot" (8 octets) en evenements clavier.
+static void hid_kbd_report(xdev_t *x) {
+    uint8_t *r = x->rbuf;
+    uint8_t mod = r[0];
+    uint8_t mods = 0;
+    if (mod & 0x22) mods |= MOD_SHIFT;        // L/R Shift
+    if (mod & 0x11) mods |= MOD_CTRL;         // L/R Ctrl
+    if (mod & 0x44) mods |= MOD_ALT;          // L/R Alt
+    for (int k = 2; k < 8; k++) {
+        uint8_t u = r[k];
+        if (u == 0 || u == 1) continue;       // 0=vide, 1=ErrorRollOver
+        // touche deja enfoncee au rapport precedent ? alors ce n'est pas un appui neuf
+        bool was = false;
+        for (int p = 2; p < 8; p++) if (x->prev[p] == u) { was = true; break; }
+        if (was) continue;
+
+        event_t e = {0}; e.type = EV_KEY; e.pressed = true; e.mods = mods;
+        switch (u) {
+            case 0x28: e.key = KEY_ENTER; break;
+            case 0x29: e.key = KEY_ESC; break;
+            case 0x2A: e.key = KEY_BACKSPACE; break;
+            case 0x2B: e.key = KEY_TAB; break;
+            case 0x4F: e.key = KEY_RIGHT; break;
+            case 0x50: e.key = KEY_LEFT; break;
+            case 0x51: e.key = KEY_DOWN; break;
+            case 0x52: e.key = KEY_UP; break;
+            case 0x4A: e.key = KEY_HOME; break;
+            case 0x4D: e.key = KEY_END; break;
+            case 0x4C: e.key = KEY_DELETE; break;
+            case 0x4B: e.key = KEY_PAGEUP; break;
+            case 0x4E: e.key = KEY_PAGEDOWN; break;
+            default: {
+                char c = (mods & MOD_SHIFT) ? hid2az_shift[u] : hid2az[u];
+                if (!c) continue;
+                e.ch = c;
+            }
+        }
+        input_push(&e);
+    }
+    for (int k = 0; k < 8; k++) x->prev[k] = r[k];
+}
+
+// Traduit un rapport souris "boot" (>=3 octets) en evenement souris.
+static void hid_mouse_report(xdev_t *x) {
+    uint8_t *r = x->rbuf;
+    uint8_t btn = r[0];
+    int dx = (int8_t)r[1];
+    int dy = (int8_t)r[2];
+    x->mx += dx; x->my += dy;
+    if (x->mx < 0) x->mx = 0;
+    if (x->my < 0) x->my = 0;
+    if (x->mx >= (int32_t)fb_width())  x->mx = fb_width() - 1;
+    if (x->my >= (int32_t)fb_height()) x->my = fb_height() - 1;
+
+    event_t e = {0};
+    e.type = EV_MOUSE;
+    e.mx = x->mx; e.my = x->my;
+    e.dx = dx; e.dy = dy;
+    e.buttons = (btn & 1 ? MOUSE_LEFT : 0) | (btn & 2 ? MOUSE_RIGHT : 0) | (btn & 4 ? MOUSE_MIDDLE : 0);
+    input_push(&e);
+}
+
+// Vide l'anneau d'evenements et distribue les rapports HID (non bloquant).
+static void usb_poll(void) {
+    if (!xhci_ok) return;
+    for (int n = 0; n < 64; n++) {
+        trb_t e;
+        if (!next_event(&e, 1)) break;        // 1 seule tentative : non bloquant
+        if (((e.control >> 10) & 0x3F) != TR_TRANSFER) continue;
+        uint8_t slot = (e.control >> 24) & 0xFF;
+        if (slot >= 16 || !xdevs[slot].used || !xdevs[slot].is_hid) continue;
+        xdev_t *x = &xdevs[slot];
+        if (x->is_kbd)        hid_kbd_report(x);
+        else if (x->is_mouse) hid_mouse_report(x);
+        queue_int_in(x);                       // re-arme la scrutation
+    }
+}
+
+// Tache noyau : scrute les peripheriques HID en continu.
+void usb_task(void) {
+    for (;;) { usb_poll(); pit_sleep_ms(4); }
 }
 
 // =============================================================================
@@ -347,4 +586,8 @@ void usb_init(void) {
         if (sc & (1u << 1)) enumerate_port(p);          // PED : port active
     }
     kprintf("[usb] %d peripherique(s) USB detecte(s)\n", dev_count);
+
+    // configure les peripheriques HID detectes (clavier / souris)
+    for (int s = 1; s < 16; s++)
+        if (xdevs[s].used && xdevs[s].is_hid) hid_setup(&xdevs[s]);
 }
