@@ -66,6 +66,9 @@ typedef struct {
     uint8_t *rbuf;    uint64_t rbuf_phys;
     uint8_t  prev[8];                 // dernier rapport clavier (detection des appuis)
     int32_t  mx, my;                  // position souris
+    // endpoints "bulk" (stockage de masse, classe 8)
+    bool     is_msc;
+    uint8_t  bin_dci, bout_dci; uint16_t bin_mps, bout_mps;
 } xdev_t;
 static xdev_t xdevs[16];              // indexe par numero de slot (1..max_slots)
 
@@ -126,6 +129,18 @@ static void *dma_zeroed(size_t sz, uint64_t *phys) {
 // Petit delai par attente active (independant des interruptions / du PIT, pour
 // ne JAMAIS pouvoir bloquer le demarrage).
 static void spin(volatile uint64_t n) { while (n--) __asm__ volatile ("pause"); }
+
+// Sauvegarde/restauration de l'etat des interruptions : l'acces a l'anneau
+// d'evenements est PARTAGE entre la tache HID (IF=1) et les transferts de
+// stockage faits depuis un appel systeme (IF=0). On serialise donc tout acces
+// par une section critique (cli), sans jamais reactiver les IRQ a tort.
+static inline uint64_t irq_save(void) {
+    uint64_t f; __asm__ volatile ("pushfq; pop %0; cli" : "=r"(f) :: "memory");
+    return f;
+}
+static inline void irq_restore(uint64_t f) {
+    __asm__ volatile ("push %0; popfq" :: "r"(f) : "memory", "cc");
+}
 
 // Attend qu'un bit passe a 'val' (borne par un compteur d'iterations). 1=succes.
 static bool wait_bit(uint32_t off, uint32_t mask, uint32_t val, uint32_t loops) {
@@ -279,9 +294,10 @@ static void enumerate_port(int port) {
     uint16_t pid = buf[10] | (buf[11] << 8);
     uint8_t  dclass = buf[4];
 
-    // 5) GET_DESCRIPTOR (config) -> classe d'interface + endpoint d'interruption
+    // 5) GET_DESCRIPTOR (config) -> classe d'interface + endpoints
     uint8_t iclass = 0, iproto = 0;
     uint8_t ep_addr = 0; uint16_t ep_mps = 8; uint8_t ep_interval = 6;
+    uint8_t bin_addr = 0, bout_addr = 0; uint16_t bin_mps = 512, bout_mps = 512;
     memset(buf, 0, 64);
     if (control_in(ep0_ring, ep0_phys, &ep0_idx, &ep0_cycle, slot,
                    0x80, 6, 0x0200, 0, 64, buf_phys) == 0) {
@@ -292,10 +308,12 @@ static void enumerate_port(int port) {
                 if (iclass == 0) { iclass = buf[o+5]; iproto = buf[o+7]; }
             } else if (buf[o+1] == 5) {                   // Endpoint
                 uint8_t addr = buf[o+2], attr = buf[o+3];
-                if ((attr & 3) == 3 && (addr & 0x80) && !ep_addr) {  // Interrupt IN
-                    ep_addr = addr;
-                    ep_mps  = buf[o+4] | (buf[o+5] << 8);
-                    ep_interval = buf[o+6];
+                uint16_t mps = buf[o+4] | (buf[o+5] << 8);
+                if ((attr & 3) == 3 && (addr & 0x80) && !ep_addr) {       // Interrupt IN
+                    ep_addr = addr; ep_mps = mps; ep_interval = buf[o+6];
+                } else if ((attr & 3) == 2) {                             // Bulk
+                    if ((addr & 0x80) && !bin_addr)  { bin_addr = addr;  bin_mps = mps; }
+                    if (!(addr & 0x80) && !bout_addr) { bout_addr = addr; bout_mps = mps; }
                 }
             }
         }
@@ -322,6 +340,11 @@ static void enumerate_port(int port) {
             x->is_mouse = (iproto == 2);
             x->ep_dci = (uint8_t)(2 * (ep_addr & 0x0F) + 1); // EP num IN -> DCI
             x->ep_mps = ep_mps; x->ep_interval = ep_interval;
+        } else if (iclass == 8 && bin_addr && bout_addr) { // stockage de masse (bulk IN+OUT)
+            x->is_msc = true;
+            x->bin_dci  = (uint8_t)(2 * (bin_addr  & 0x0F) + 1); // IN  -> DCI impair
+            x->bout_dci = (uint8_t)(2 * (bout_addr & 0x0F));     // OUT -> DCI pair
+            x->bin_mps = bin_mps; x->bout_mps = bout_mps;
         }
     }
 }
@@ -476,25 +499,211 @@ static void hid_mouse_report(xdev_t *x) {
     input_push(&e);
 }
 
+// Traite un Transfer Event venant d'un endpoint HID : parse le rapport et
+// re-arme la scrutation. Renvoie true si l'evenement a ete consomme ici.
+static bool dispatch_hid(uint8_t slot) {
+    if (slot >= 16 || !xdevs[slot].used || !xdevs[slot].is_hid) return false;
+    xdev_t *x = &xdevs[slot];
+    if (x->is_kbd)        hid_kbd_report(x);
+    else if (x->is_mouse) hid_mouse_report(x);
+    queue_int_in(x);
+    return true;
+}
+
 // Vide l'anneau d'evenements et distribue les rapports HID (non bloquant).
 static void usb_poll(void) {
     if (!xhci_ok) return;
+    uint64_t fl = irq_save();
     for (int n = 0; n < 64; n++) {
         trb_t e;
         if (!next_event(&e, 1)) break;        // 1 seule tentative : non bloquant
         if (((e.control >> 10) & 0x3F) != TR_TRANSFER) continue;
-        uint8_t slot = (e.control >> 24) & 0xFF;
-        if (slot >= 16 || !xdevs[slot].used || !xdevs[slot].is_hid) continue;
-        xdev_t *x = &xdevs[slot];
-        if (x->is_kbd)        hid_kbd_report(x);
-        else if (x->is_mouse) hid_mouse_report(x);
-        queue_int_in(x);                       // re-arme la scrutation
+        dispatch_hid((e.control >> 24) & 0xFF);
     }
+    irq_restore(fl);
 }
 
 // Tache noyau : scrute les peripheriques HID en continu.
 void usb_task(void) {
     for (;;) { usb_poll(); pit_sleep_ms(4); }
+}
+
+// =============================================================================
+//  Stockage de masse USB : Bulk-Only Transport (BOT) + commandes SCSI
+// =============================================================================
+typedef struct {
+    bool     ok;
+    uint8_t  slot, in_dci, out_dci;
+    trb_t   *in_ring;  uint64_t in_ring_phys;  int in_idx;  uint8_t in_cycle;
+    trb_t   *out_ring; uint64_t out_ring_phys; int out_idx; uint8_t out_cycle;
+    uint8_t *cbw;  uint64_t cbw_phys;     // Command Block Wrapper (31 o)
+    uint8_t *csw;  uint64_t csw_phys;     // Command Status Wrapper (13 o)
+    uint8_t *data; uint64_t data_phys;    // tampon DMA (4 Kio)
+    uint32_t block_size, block_count;
+    uint32_t tag;
+} msc_t;
+static msc_t msc;
+#define MSC_BOUNCE 4096
+
+bool     usb_msc_present(void)    { return msc.ok; }
+uint32_t usb_msc_blocks(void)     { return msc.block_count; }
+uint32_t usb_msc_block_size(void) { return msc.block_size; }
+
+// Transfert "bulk" : place un Normal TRB sur l'anneau d'un endpoint, sonne, et
+// attend le Transfer Event correspondant (en traitant les rapports HID croises).
+// Renvoie le completion code (1=Success, 13=Short Packet, 0=timeout).
+static int bulk_xfer(trb_t *ring, uint64_t ring_phys, int *idx, uint8_t *cycle,
+                     uint8_t dci, uint64_t phys, uint32_t len) {
+    int i = *idx; uint8_t cy = *cycle;
+    ring[i].param = phys;
+    ring[i].status = len;                          // TRB transfer length
+    ring[i].control = TRB_TYPE(TR_NORMAL) | (1u << 5) /*IOC*/ | (1u << 2) /*ISP*/ | cy;
+    i++;
+    if (i >= RING_SZ - 1) {
+        ring[RING_SZ-1].param = ring_phys; ring[RING_SZ-1].status = 0;
+        ring[RING_SZ-1].control = TRB_TYPE(TR_LINK) | (1 << 1) | cy;
+        i = 0; cy ^= 1;
+    }
+    *idx = i; *cycle = cy;
+    db[msc.slot] = dci;
+    for (int skip = 0; skip < 64; skip++) {
+        trb_t e;
+        if (!next_event(&e, 300000)) return 0;
+        if (((e.control >> 10) & 0x3F) != TR_TRANSFER) continue;
+        uint8_t es = (e.control >> 24) & 0xFF;
+        uint8_t ed = (e.control >> 16) & 0x1F;
+        if (es == msc.slot && ed == dci) return (e.status >> 24) & 0xFF;
+        dispatch_hid(es);                          // evenement HID croise -> traite
+    }
+    return 0;
+}
+static inline bool xfer_ok(int cc) { return cc == 1 || cc == 13; }
+
+// Execute une commande SCSI via BOT. dir : 0=aucune donnee, 1=IN, 2=OUT.
+// Les donnees transitent par le tampon msc.data. Renvoie le bCSWStatus (0=OK).
+static int bot_command(const uint8_t *cmd, int cmd_len, int dir, uint32_t data_len) {
+    uint8_t *c = msc.cbw;
+    memset(c, 0, 31);
+    *(uint32_t *)(c + 0) = 0x43425355;             // dCBWSignature 'USBC'
+    *(uint32_t *)(c + 4) = ++msc.tag;              // dCBWTag
+    *(uint32_t *)(c + 8) = data_len;               // dCBWDataTransferLength
+    c[12] = (dir == 1) ? 0x80 : 0x00;              // bmCBWFlags
+    c[13] = 0;                                     // bCBWLUN
+    c[14] = (uint8_t)cmd_len;                      // bCBWCBLength
+    memcpy(c + 15, cmd, cmd_len);
+
+    if (!xfer_ok(bulk_xfer(msc.out_ring, msc.out_ring_phys, &msc.out_idx, &msc.out_cycle,
+                           msc.out_dci, msc.cbw_phys, 31))) return -1;
+    if (data_len) {
+        if (dir == 1) {
+            if (!xfer_ok(bulk_xfer(msc.in_ring, msc.in_ring_phys, &msc.in_idx, &msc.in_cycle,
+                                   msc.in_dci, msc.data_phys, data_len))) return -1;
+        } else {
+            if (!xfer_ok(bulk_xfer(msc.out_ring, msc.out_ring_phys, &msc.out_idx, &msc.out_cycle,
+                                   msc.out_dci, msc.data_phys, data_len))) return -1;
+        }
+    }
+    if (!xfer_ok(bulk_xfer(msc.in_ring, msc.in_ring_phys, &msc.in_idx, &msc.in_cycle,
+                           msc.in_dci, msc.csw_phys, 13))) return -1;
+    uint8_t *s = msc.csw;
+    if (*(uint32_t *)(s + 0) != 0x53425355) return -1;   // dCSWSignature 'USBS'
+    return s[12];                                  // bCSWStatus (0 = succes)
+}
+
+// lit/ecrit `count` secteurs (memoire NOYAU). Serialise avec la tache HID.
+int usb_msc_read(uint32_t lba, uint32_t count, void *dst) {
+    if (!msc.ok || !dst) return -1;
+    uint32_t per = MSC_BOUNCE / msc.block_size; if (!per) per = 1;
+    uint64_t fl = irq_save();
+    uint8_t *out = (uint8_t *)dst; int rc = 0;
+    while (count) {
+        uint32_t n = count > per ? per : count;
+        uint8_t cmd[16]; memset(cmd, 0, 16);
+        cmd[0] = 0x28;                             // READ(10)
+        cmd[2] = lba >> 24; cmd[3] = lba >> 16; cmd[4] = lba >> 8; cmd[5] = lba;
+        cmd[7] = n >> 8; cmd[8] = n;
+        if (bot_command(cmd, 10, 1, n * msc.block_size) != 0) { rc = -1; break; }
+        memcpy(out, msc.data, n * msc.block_size);
+        out += n * msc.block_size; lba += n; count -= n;
+    }
+    irq_restore(fl);
+    return rc;
+}
+int usb_msc_write(uint32_t lba, uint32_t count, const void *src) {
+    if (!msc.ok || !src) return -1;
+    uint32_t per = MSC_BOUNCE / msc.block_size; if (!per) per = 1;
+    uint64_t fl = irq_save();
+    const uint8_t *in = (const uint8_t *)src; int rc = 0;
+    while (count) {
+        uint32_t n = count > per ? per : count;
+        memcpy(msc.data, in, n * msc.block_size);
+        uint8_t cmd[16]; memset(cmd, 0, 16);
+        cmd[0] = 0x2A;                             // WRITE(10)
+        cmd[2] = lba >> 24; cmd[3] = lba >> 16; cmd[4] = lba >> 8; cmd[5] = lba;
+        cmd[7] = n >> 8; cmd[8] = n;
+        if (bot_command(cmd, 10, 2, n * msc.block_size) != 0) { rc = -1; break; }
+        in += n * msc.block_size; lba += n; count -= n;
+    }
+    irq_restore(fl);
+    return rc;
+}
+
+// Configure un peripherique de stockage de masse : endpoints bulk + SCSI.
+static void msc_setup(xdev_t *x) {
+    if (msc.ok) return;                            // un seul disque USB gere
+    if (control_nodata(x, 0x00, 9, 1, 0) != 0) {   // SET_CONFIGURATION(1)
+        kprintf("[msc] SET_CONFIGURATION echec\n"); return;
+    }
+    msc.slot = x->slot; msc.in_dci = x->bin_dci; msc.out_dci = x->bout_dci;
+    msc.in_ring  = dma_zeroed(4096, &msc.in_ring_phys);  msc.in_idx = 0;  msc.in_cycle = 1;
+    msc.out_ring = dma_zeroed(4096, &msc.out_ring_phys); msc.out_idx = 0; msc.out_cycle = 1;
+    msc.cbw  = dma_zeroed(64, &msc.cbw_phys);
+    msc.csw  = dma_zeroed(64, &msc.csw_phys);
+    msc.data = dma_zeroed(MSC_BOUNCE, &msc.data_phys);
+    if (!msc.in_ring || !msc.out_ring || !msc.cbw || !msc.csw || !msc.data) return;
+
+    // Configure Endpoint : ajoute le bulk OUT (type 2) et le bulk IN (type 6)
+    memset(x->inctx, 0, 2048);
+    uint32_t maxdci = msc.in_dci > msc.out_dci ? msc.in_dci : msc.out_dci;
+    *(uint32_t *)(x->inctx + 4) = 0x1u | (1u << msc.in_dci) | (1u << msc.out_dci);
+    uint32_t *slotc = (uint32_t *)(x->inctx + 32);
+    slotc[0] = (maxdci << 27) | ((uint32_t)x->speed << 20);
+    slotc[1] = (uint32_t)x->port << 16;
+    uint32_t *oc = (uint32_t *)(x->inctx + 32 + (uint32_t)msc.out_dci * 32);
+    oc[1] = (2u << 3) | ((uint32_t)x->bout_mps << 16) | (3u << 1);
+    *(uint64_t *)(oc + 2) = msc.out_ring_phys | 1;
+    oc[4] = x->bout_mps;
+    uint32_t *ic = (uint32_t *)(x->inctx + 32 + (uint32_t)msc.in_dci * 32);
+    ic[1] = (6u << 3) | ((uint32_t)x->bin_mps << 16) | (3u << 1);
+    *(uint64_t *)(ic + 2) = msc.in_ring_phys | 1;
+    ic[4] = x->bin_mps;
+    if (cmd_exec(x->in_phys, TRB_TYPE(TR_CONFIG_EP) | ((uint32_t)x->slot << 24), 0) != 1) {
+        kprintf("[msc] Configure Endpoint echec\n"); return;
+    }
+
+    // SCSI : TEST UNIT READY (quelques essais), puis READ CAPACITY(10)
+    uint8_t cmd[16];
+    for (int t = 0; t < 5; t++) {
+        memset(cmd, 0, 16); cmd[0] = 0x00;          // TEST UNIT READY
+        if (bot_command(cmd, 6, 0, 0) == 0) break;
+        memset(cmd, 0, 16); cmd[0] = 0x03; cmd[4] = 18;  // REQUEST SENSE
+        bot_command(cmd, 6, 1, 18);
+        spin(500000);
+    }
+    memset(cmd, 0, 16); cmd[0] = 0x25;              // READ CAPACITY(10)
+    if (bot_command(cmd, 10, 1, 8) == 0) {
+        uint8_t *d = msc.data;
+        uint32_t last = (d[0] << 24) | (d[1] << 16) | (d[2] << 8) | d[3];
+        uint32_t bsz  = (d[4] << 24) | (d[5] << 16) | (d[6] << 8) | d[7];
+        msc.block_count = last + 1;
+        msc.block_size  = bsz ? bsz : 512;
+        msc.ok = true;
+        kprintf("[msc] disque USB pret : %d secteurs de %d o (%d Mio)\n",
+                msc.block_count, msc.block_size,
+                (uint32_t)(((uint64_t)msc.block_count * msc.block_size) >> 20));
+    } else {
+        kprintf("[msc] READ CAPACITY echec\n");
+    }
 }
 
 // =============================================================================
@@ -587,7 +796,10 @@ void usb_init(void) {
     }
     kprintf("[usb] %d peripherique(s) USB detecte(s)\n", dev_count);
 
-    // configure les peripheriques HID detectes (clavier / souris)
+    // configure d'abord le stockage de masse (poignee de main SCSI sans HID),
+    // puis les peripheriques HID (clavier / souris).
+    for (int s = 1; s < 16; s++)
+        if (xdevs[s].used && xdevs[s].is_msc) msc_setup(&xdevs[s]);
     for (int s = 1; s < 16; s++)
         if (xdevs[s].used && xdevs[s].is_hid) hid_setup(&xdevs[s]);
 }

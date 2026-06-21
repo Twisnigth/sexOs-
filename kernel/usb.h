@@ -21,4 +21,11 @@ void  usb_task(void);                        // tache noyau : scrute les HID (cl
 int   usb_count(void);
 const usb_dev_t *usb_get(int i);
 
+// --- Stockage de masse USB (Bulk-Only Transport + SCSI) ----------------------
+bool     usb_msc_present(void);              // un disque USB est-il pret ?
+uint32_t usb_msc_blocks(void);              // nombre de secteurs
+uint32_t usb_msc_block_size(void);          // taille d'un secteur (octets)
+int      usb_msc_read(uint32_t lba, uint32_t count, void *dst);        // 0/-1
+int      usb_msc_write(uint32_t lba, uint32_t count, const void *src); // 0/-1
+
 #endif

@@ -527,6 +527,23 @@ long syscall_dispatch(sysargs_t *a) {
                  u->speed = d->speed; u->port = d->port; }
         return 1;
     }
+    case SYS_usb_disk: {
+        usbdisk_t *k = (usbdisk_t *)a->rdi;
+        if (k) { k->present = usb_msc_present() ? 1 : 0;
+                 k->block_size = usb_msc_block_size();
+                 k->block_count = usb_msc_blocks(); }
+        return 0;
+    }
+    case SYS_usb_read: {
+        uint32_t lba = (uint32_t)a->rdi, count = (uint32_t)a->rdx;
+        if (count == 0 || count > 256) return -1;       // borne (section IF=0)
+        return usb_msc_read(lba, count, (void *)a->rsi);
+    }
+    case SYS_usb_write: {
+        uint32_t lba = (uint32_t)a->rdi, count = (uint32_t)a->rdx;
+        if (count == 0 || count > 256) return -1;
+        return usb_msc_write(lba, count, (const void *)a->rsi);
+    }
     case SYS_users_list: {
         const user_t *cu = users_get((int)a->rdi);
         if (!cu) return 0;

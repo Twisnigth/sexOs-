@@ -175,6 +175,7 @@ static void cmd_help(void) {
     tprint("           cp mv rm mkdir touch nano sort uniq rev   (echo ... > fichier)\n");
     tprint("systeme  : help clear echo whoami id users su passwd uname about date\n");
     tprint("           sysinfo uptime free df sync ps lsusb sleep cal seq calc base64 history reboot\n");
+    tprint("USB      : lsusb   usbdisk   usbrd [lba]   usbwr <texte>\n");
     tprint("reseau   : ip resolve ping curl wget   ssh user@hote [cmd]\n");
     tprint("cles ssh : hostkey pubkey pubkey-add ssh-keygen\n");
     tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus beep play\n");
@@ -743,6 +744,55 @@ static void cmd_lsusb(void) {
     }
     if (n == 0) tprint("aucun peripherique USB (ajoute -device qemu-xhci -device usb-...)\n");
 }
+
+// --- disque de masse USB : infos + lecture / ecriture de secteurs ------------
+static unsigned char usb_sec[2048];
+static void usb_dump(const unsigned char *p, int n) {
+    const char *hx = "0123456789abcdef";
+    for (int o = 0; o < n; o += 16) {
+        char line[80]; int j = 0;
+        for (int i = 0; i < 16; i++) {
+            if (o + i < n) { line[j++] = hx[(p[o+i]>>4)&15]; line[j++] = hx[p[o+i]&15]; }
+            else { line[j++] = ' '; line[j++] = ' '; }
+            line[j++] = ' ';
+        }
+        line[j++] = ' ';
+        for (int i = 0; i < 16 && o+i < n; i++) {
+            unsigned char c = p[o+i]; line[j++] = (c >= 32 && c < 127) ? c : '.';
+        }
+        line[j] = 0; tprint(line); tprint("\n");
+    }
+}
+static void cmd_usbdisk(void) {
+    usbdisk_t d; sys_usb_disk(&d);
+    if (!d.present) { tprint("aucun disque USB (ajoute -device usb-storage,drive=...)\n"); return; }
+    char b[16];
+    utoa(d.block_count, b); tprint("disque USB : "); tprint(b); tprint(" secteurs de ");
+    utoa(d.block_size, b); tprint(b); tprint(" o (");
+    utoa((unsigned long)(((unsigned long long)d.block_count * d.block_size) >> 20), b);
+    tprint(b); tprint(" Mio)\n");
+    if (sys_usb_read(0, usb_sec, 1) == 0) {
+        tprint("-- secteur 0 (64 premiers octets) --\n"); usb_dump(usb_sec, 64);
+    } else tprint("lecture du secteur 0 impossible\n");
+}
+static void cmd_usbrd(const char *arg) {
+    usbdisk_t d; sys_usb_disk(&d);
+    if (!d.present) { tprint("aucun disque USB\n"); return; }
+    unsigned lba = 0; for (const char *p = arg; *p >= '0' && *p <= '9'; p++) lba = lba*10 + (*p-'0');
+    if (sys_usb_read(lba, usb_sec, 1) != 0) { tprint("lecture impossible\n"); return; }
+    char b[16]; utoa(lba, b); tprint("secteur "); tprint(b); tprint(" :\n");
+    usb_dump(usb_sec, 128);
+}
+static void cmd_usbwr(const char *arg) {
+    usbdisk_t d; sys_usb_disk(&d);
+    if (!d.present) { tprint("aucun disque USB\n"); return; }
+    int bs = d.block_size > 2048 ? 2048 : (int)d.block_size;
+    for (int i = 0; i < bs; i++) usb_sec[i] = 0;
+    int n = 0; while (arg[n] && n < bs - 1) { usb_sec[n] = (unsigned char)arg[n]; n++; }
+    if (sys_usb_write(0, usb_sec, 1) == 0)
+        tprint("ecrit dans le secteur 0 de la cle USB -- verifie avec 'usbrd 0' (meme apres reboot)\n");
+    else tprint("ecriture impossible\n");
+}
 static void cmd_sleep(const char *arg) {
     int s = 0; for (const char *p = arg; *p >= '0' && *p <= '9'; p++) s = s*10 + (*p - '0');
     if (s <= 0) { tprint("usage: sleep <secondes>\n"); return; }
@@ -1223,6 +1273,9 @@ static void run(char *line) {
     else if (!strcmp(cmd, "hexdump") || !strcmp(cmd, "xxd")) cmd_hexdump(arg);
     else if (!strcmp(cmd, "ps")) cmd_ps();
     else if (!strcmp(cmd, "lsusb")) cmd_lsusb();
+    else if (!strcmp(cmd, "usbdisk")) cmd_usbdisk();
+    else if (!strcmp(cmd, "usbrd")) cmd_usbrd(arg);
+    else if (!strcmp(cmd, "usbwr")) cmd_usbwr(arg);
     else if (!strcmp(cmd, "sleep")) cmd_sleep(arg);
     else if (!strcmp(cmd, "cal")) cmd_cal();
     else if (!strcmp(cmd, "cowsay")) cmd_cowsay(arg);

@@ -80,6 +80,9 @@ static inline void sys_rtc(void *t)             { _sc1(SYS_rtc_now, (long)t); }
 static inline void sys_sysinfo(void *s)         { _sc1(SYS_sysinfo, (long)s); }
 static inline int  sys_proc_list(int i, procinfo_t *p) { return (int)_sc2(SYS_proc_list, i, (long)p); }
 static inline int  sys_usb_list(int i, usbinfo_t *u)   { return (int)_sc2(SYS_usb_list, i, (long)u); }
+static inline void sys_usb_disk(usbdisk_t *d)          { _sc1(SYS_usb_disk, (long)d); }
+static inline int  sys_usb_read(unsigned lba, void *b, unsigned count)        { return (int)_sc3(SYS_usb_read, lba, (long)b, count); }
+static inline int  sys_usb_write(unsigned lba, const void *b, unsigned count) { return (int)_sc3(SYS_usb_write, lba, (long)b, count); }
 
 // --- Réseau : sockets TCP non bloquantes + DNS -------------------------------
 static inline void sys_net_info(netinfo_t *ni)          { _sc1(SYS_net_info, (long)ni); }

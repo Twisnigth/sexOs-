@@ -47,6 +47,9 @@
 #define SYS_sysinfo     0x252      // remplit sysinfo_t (mémoire, uptime, PCI)
 #define SYS_proc_list   0x253      // (index, *procinfo) -> 1=rempli / 0=au-delà
 #define SYS_usb_list    0x256      // (index, *usbinfo) -> 1=rempli / 0=fin
+#define SYS_usb_disk    0x257      // (*usbdisk_t) -> 0 (infos du disque de masse USB)
+#define SYS_usb_read    0x258      // (lba, buf, count) -> 0/-1 (lit des secteurs)
+#define SYS_usb_write   0x259      // (lba, buf, count) -> 0/-1 (ecrit des secteurs)
 
 // --- Système -----------------------------------------------------------------
 #define SYS_reboot      0x260      // redémarre la machine (sauvegarde le disque avant)
@@ -118,6 +121,13 @@ typedef struct {
     uint16_t vendor, product;
     uint8_t  dev_class, if_class, speed, port;
 } usbinfo_t;
+
+// État du disque de masse USB (SYS_usb_disk), pour les commandes usbdisk/usbrd/usbwr.
+typedef struct {
+    uint32_t present;        // 1 si un disque USB est prêt
+    uint32_t block_size;     // taille d'un secteur (octets)
+    uint32_t block_count;    // nombre de secteurs
+} usbdisk_t;
 
 // État de l'interface réseau renvoyé par SYS_net_info (ordre hôte).
 typedef struct { uint32_t ip, mask, gateway, dns; int up; } netinfo_t;
