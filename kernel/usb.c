@@ -254,7 +254,7 @@ static void enumerate_port(int port) {
         d->slot = slot; d->port = port; d->speed = speed;
         d->vendor = vid; d->product = pid; d->dev_class = dclass; d->if_class = iclass;
     }
-    kprintf("[xhci] port %d : peripherique %04x:%04x classe=%02x (slot %d)\n",
+    kprintf("[xhci] port %d : peripherique %x:%x classe=%x (slot %d)\n",
             port, vid, pid, iclass ? iclass : dclass, slot);
 }
 
@@ -334,9 +334,6 @@ void usb_init(void) {
     wr32(op, O_USBCMD, rd32(op, O_USBCMD) | 1u);
     if (!wait_bit(O_USBSTS, 1, 0, 60000)) { kprintf("[xhci] demarrage timeout\n"); return; }
     xhci_ok = true;
-    kprintf("[xhci] running: USBSTS=%x CRCR_lo=%x cmd_phys=%x evt_phys=%x erst_phys=%x\n",
-            rd32(op, O_USBSTS), rd32(op, O_CRCR), (uint32_t)cmd_ring_phys,
-            (uint32_t)evt_ring_phys, (uint32_t)erst_phys);
 
     // reset + enumeration des ports connectes
     for (int p = 1; p <= num_ports; p++) {
