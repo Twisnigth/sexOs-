@@ -19,12 +19,18 @@
 
 static uint8_t image[FS_CAP];
 
-// --- couche disque : IDE « legacy » ou SATA AHCI (VM modernes) ---------------
-static int disk_kind;                 // 0=aucun, 1=IDE, 2=AHCI
+// --- couche disque : IDE « legacy » + SATA AHCI (VM modernes) ----------------
+//  Le disque SYSTEME (racine /) est l'IDE s'il existe, sinon le SATA. Si les
+//  DEUX existent, le SATA est monte en plus comme volume (/media/disk).
+static int  disk_kind;                 // disque systeme : 0=aucun, 1=IDE, 2=AHCI
+static bool ahci_extra;                // un disque SATA est present EN PLUS du systeme
 static bool disk_init(void) {
-    if (ata_init())  { disk_kind = 1; return true; }   // IDE primaire (0x1F0)
-    if (ahci_init()) { disk_kind = 2; return true; }   // SATA AHCI (q35, VMware...)
-    disk_kind = 0; return false;
+    bool ide  = ata_init();            // IDE primaire (0x1F0)
+    bool sata = ahci_init();           // SATA AHCI (q35, VMware...)
+    if (ide)       { disk_kind = 1; ahci_extra = sata; }   // IDE = racine, SATA en plus
+    else if (sata) { disk_kind = 2; ahci_extra = false; }  // SATA = racine
+    else           { disk_kind = 0; return false; }
+    return true;
 }
 static bool disk_ok(void)    { return disk_kind != 0; }
 static bool disk_read(uint32_t l, uint32_t c, void *b) {
@@ -131,71 +137,119 @@ void fs_init(void) {
 }
 
 // =============================================================================
-//  Cle USB montee sur /media/usb : meme format d'instantane, sur le disque USB
+//  Volumes montes sous /media (cle USB, disque SATA supplementaire...)
+// -----------------------------------------------------------------------------
+//  Chaque volume porte son propre instantane SEXOSFS1 sur son support bloc.
+//  On retient pour chacun ses fonctions de lecture/ecriture de secteurs, ce qui
+//  permet de router la persistance vers le bon support selon le chemin.
 // =============================================================================
-static bool usb_mounted;
+typedef bool (*blk_rd_t)(uint32_t, uint32_t, void *);
+typedef bool (*blk_wr_t)(uint32_t, uint32_t, const void *);
 
-bool usbfs_mounted(void) { return usb_mounted; }
+#define MAX_VOL 4
+typedef struct {
+    bool     used;
+    char     mp[40];                  // point de montage, ex. "/media/usb"
+    blk_rd_t rd;
+    blk_wr_t wr;
+} vol_t;
+static vol_t vols[MAX_VOL];
 
-int usbfs_sync(void) {
-    if (!usb_mounted || !usb_msc_present()) return -1;
-    vfs_node_t *usb = vfs_resolve("/media/usb");
-    if (!usb) return -1;
+static vfs_node_t *media_child(const char *name, bool create) {
+    vfs_node_t *media = vfs_lookup(vfs_root(), "media");
+    if (!media && create) media = vfs_create(vfs_root(), "media", VFS_DIR);
+    if (!media) return NULL;
+    vfs_node_t *n = vfs_lookup(media, name);
+    if (!n && create) n = vfs_create(media, name, VFS_DIR);
+    return n;
+}
+
+static int vol_write_node(vol_t *v, vfs_node_t *node) {
     memcpy(image, FS_MAGIC, 8);
     size_t o = 12;
-    uint32_t cnt = 0; for (vfs_node_t *c = usb->children; c; c = c->next) cnt++;
+    uint32_t cnt = 0; for (vfs_node_t *c = node->children; c; c = c->next) cnt++;
     o = pu32(image, o, cnt);
-    for (vfs_node_t *c = usb->children; c; c = c->next) o = ser_node(c, image, o);
+    for (vfs_node_t *c = node->children; c; c = c->next) o = ser_node(c, image, o);
     pu32(image, 8, (uint32_t)o);
     uint32_t secs = (o + 511) / 512;
-    return usb_msc_write(0, secs, image) == 0 ? 0 : -1;
+    return v->wr(0, secs, image) ? 0 : -1;
 }
 
-void usbfs_mount(void) {
-    if (!usb_msc_present()) return;
-    vfs_node_t *media = vfs_lookup(vfs_root(), "media");
-    if (!media) media = vfs_create(vfs_root(), "media", VFS_DIR);
-    vfs_node_t *usb = media ? vfs_lookup(media, "usb") : NULL;
-    if (!usb && media) usb = vfs_create(media, "usb", VFS_DIR);
-    if (!usb) return;
-    usb_mounted = true;
+// Monte un peripherique bloc sous /media/<name> (formate s'il est vierge).
+static void vol_mount(const char *name, blk_rd_t rd, blk_wr_t wr, const char *label) {
+    vfs_node_t *node = media_child(name, true);
+    if (!node) return;
+    vol_t *v = NULL;
+    for (int i = 0; i < MAX_VOL; i++) if (!vols[i].used) { v = &vols[i]; break; }
+    if (!v) return;
+    v->used = true; v->rd = rd; v->wr = wr;
+    strcpy(v->mp, "/media/"); strcat(v->mp, name);
 
-    // tente de lire un instantane existant sur la cle
-    if (usb_msc_read(0, 1, image) == 0 && memcmp(image, FS_MAGIC, 8) == 0) {
+    if (rd(0, 1, image) && memcmp(image, FS_MAGIC, 8) == 0) {
         uint32_t total = gu32(image, 8);
-        if (total >= 16 && total <= FS_CAP) {
-            uint32_t secs = (total + 511) / 512;
-            if (usb_msc_read(0, secs, image) == 0) {
-                size_t o = 12; uint32_t cnt = gu32(image, o); o += 4;
-                for (uint32_t i = 0; i < cnt && o < total; i++) o = deser_node(usb, image, o, total);
-                kprintf("[usbfs] cle USB montee sur /media/usb (%d entree(s))\n", cnt);
-                return;
-            }
+        if (total >= 16 && total <= FS_CAP && rd(0, (total + 511) / 512, image)) {
+            size_t o = 12; uint32_t cnt = gu32(image, o); o += 4;
+            for (uint32_t i = 0; i < cnt && o < total; i++) o = deser_node(node, image, o, total);
+            kprintf("[mount] %s monte sur %s (%d entree(s))\n", label, v->mp, cnt);
+            return;
         }
     }
-    // cle vierge / non reconnue : on l'initialise avec un instantane vide
-    if (usbfs_sync() == 0) kprintf("[usbfs] cle USB formatee et montee sur /media/usb\n");
-    else { usb_mounted = false; kprintf("[usbfs] cle USB presente mais montage impossible (E/S)\n"); }
+    if (vol_write_node(v, node) == 0) kprintf("[mount] %s formate et monte sur %s\n", label, v->mp);
+    else { v->used = false; kprintf("[mount] %s : montage impossible (E/S)\n", label); }
 }
 
-// Démonte /media/usb (clé retirée à chaud).
-void usbfs_unmount(void) {
-    usb_mounted = false;
-    vfs_node_t *media = vfs_lookup(vfs_root(), "media");
-    if (!media) return;
-    vfs_node_t *usb = vfs_lookup(media, "usb");
+static vol_t *vol_for_path(const char *p) {
+    if (!p) return NULL;
+    for (int i = 0; i < MAX_VOL; i++) {
+        if (!vols[i].used) continue;
+        const char *m = vols[i].mp; int j = 0;
+        while (m[j] && p[j] == m[j]) j++;
+        if (!m[j] && (p[j] == 0 || p[j] == '/')) return &vols[i];
+    }
+    return NULL;
+}
+static int vol_sync(vol_t *v) {
+    vfs_node_t *node = vfs_resolve(v->mp);
+    return node ? vol_write_node(v, node) : -1;
+}
+
+// Adaptateurs bloc pour la cle USB (usb_msc_* renvoie 0/-1, on veut bool).
+static bool usbblk_rd(uint32_t l, uint32_t c, void *b)       { return usb_msc_read(l, c, b) == 0; }
+static bool usbblk_wr(uint32_t l, uint32_t c, const void *b) { return usb_msc_write(l, c, b) == 0; }
+
+bool usbfs_mounted(void) { return vol_for_path("/media/usb") != NULL; }
+
+void usbfs_mount(void) {     // monte la cle USB (appele aussi au branchement a chaud)
+    if (usb_msc_present() && !usbfs_mounted())
+        vol_mount("usb", usbblk_rd, usbblk_wr, "cle USB");
+}
+
+void usbfs_unmount(void) {   // cle retiree a chaud
+    for (int i = 0; i < MAX_VOL; i++)
+        if (vols[i].used && strcmp(vols[i].mp, "/media/usb") == 0) vols[i].used = false;
+    vfs_node_t *usb = media_child("usb", false);
     if (usb) vfs_delete(usb);
 }
 
-// Persiste la mutation selon son chemin : la cle USB pour /media/usb, sinon le
-// disque systeme.
-static bool path_in_usb(const char *p) {
-    const char *m = "/media/usb";
-    if (!p) return false;
-    for (int i = 0; m[i]; i++) if (p[i] != m[i]) return false;
-    return p[10] == 0 || p[10] == '/';
+int usbfs_sync(void) {
+    vol_t *v = vol_for_path("/media/usb");
+    return v ? vol_sync(v) : -1;
 }
+
+// Monte au demarrage les volumes supplementaires (disque SATA + cle USB).
+void fs_mount_volumes(void) {
+    if (ahci_extra) vol_mount("disk", ahci_read, ahci_write, "disque SATA");
+    usbfs_mount();
+}
+
+// Persiste une mutation : sur le volume /media/... concerne, sinon le disque systeme.
 int fs_persist(const char *path) {
-    if (path_in_usb(path)) return usbfs_sync();
-    return fs_save();
+    vol_t *v = vol_for_path(path);
+    return v ? vol_sync(v) : fs_save();
+}
+
+// Force l'ecriture de tout (disque systeme + tous les volumes montes).
+void fs_sync_all(void) {
+    fs_save();
+    for (int i = 0; i < MAX_VOL; i++) if (vols[i].used) vol_sync(&vols[i]);
 }

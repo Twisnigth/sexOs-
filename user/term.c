@@ -798,16 +798,14 @@ static void cmd_mount(void) {
     tprint("volumes montes :\n");
     sysinfo_t s; sys_sysinfo(&s);
     tprint("  /            disque systeme ");
-    tprint(s.fs_persistent ? "(IDE, persistant)\n" : "(RAM, non persistant)\n");
-    usbdisk_t d; sys_usb_disk(&d);
-    if (d.present) {
-        char b[16];
-        tprint("  /media/usb   cle USB  ");
-        utoa((unsigned long)(((unsigned long long)d.block_count * d.block_size) >> 20), b);
-        tprint(b); tprint(" Mio  (cd /media/usb pour parcourir)\n");
-    } else {
-        tprint("  (aucune cle USB ; ajoute -device usb-storage,drive=...)\n");
+    tprint(s.fs_persistent ? "(persistant)\n" : "(RAM, non persistant)\n");
+    dirent_t e; int n = 0;
+    for (int i = 0; sys_vfs_list("/media", i, &e) == 1; i++) {
+        if (e.type != 1) continue;
+        tprint("  /media/"); tprint(e.name); tprint("   (cd pour parcourir)\n");
+        n++;
     }
+    if (!n) tprint("  (aucun volume supplementaire ; cle USB / disque SATA)\n");
 }
 static void cmd_sleep(const char *arg) {
     int s = 0; for (const char *p = arg; *p >= '0' && *p <= '9'; p++) s = s*10 + (*p - '0');

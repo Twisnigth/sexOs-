@@ -297,15 +297,12 @@ long syscall_dispatch(sysargs_t *a) {
         return 0;
     }
     case SYS_reboot:
-        fs_save();                                  // sauvegarde avant de redemarrer
-        usbfs_sync();                               // + cle USB si montee
+        fs_sync_all();                              // disque systeme + tous les volumes
         outb(0x64, 0xFE);
         return 0;
-    case SYS_sync: {
-        int r = fs_save();
-        if (usbfs_mounted()) usbfs_sync();
-        return r;
-    }
+    case SYS_sync:
+        fs_sync_all();
+        return 0;
     case SYS_beep:
         // beep() attend via pit_sleep_ms (hlt) : il FAUT les interruptions
         // (l'entree syscall les masque, FMASK). On les reactive le temps du bip.
