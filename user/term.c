@@ -740,7 +740,20 @@ static void cmd_lsusb(void) {
         tprint(cn);
         const char *sp = u.speed==4 ? "  [USB3 SS]" : u.speed==3 ? "  [USB2 HS]" :
                          u.speed==2 ? "  [LS]" : "  [FS]";
-        tprint(sp); tprint("\n");
+        tprint(sp);
+        if (u.name[0]) { tprint("  \""); tprint(u.name); tprint("\""); }
+        tprint("\n");
+        // pour le stockage de masse : montre la capacite
+        if (cl == 8) {
+            usbdisk_t d; sys_usb_disk(&d);
+            if (d.present) {
+                char b[16]; tprint("              capacite : ");
+                utoa((unsigned long)(((unsigned long long)d.block_count * d.block_size) >> 20), b);
+                tprint(b); tprint(" Mio (");
+                utoa(d.block_count, b); tprint(b); tprint(" secteurs de ");
+                utoa(d.block_size, b); tprint(b); tprint(" o)\n");
+            }
+        }
     }
     if (n == 0) tprint("aucun peripherique USB (ajoute -device qemu-xhci -device usb-...)\n");
 }

@@ -303,6 +303,7 @@ static void enumerate_port(int port) {
     uint16_t vid = buf[8] | (buf[9] << 8);
     uint16_t pid = buf[10] | (buf[11] << 8);
     uint8_t  dclass = buf[4];
+    uint8_t  iproduct = buf[15];                 // index du descripteur string "produit"
 
     // 5) GET_DESCRIPTOR (config) -> classe d'interface + endpoints
     uint8_t iclass = 0, iproto = 0;
@@ -329,13 +330,31 @@ static void enumerate_port(int port) {
         }
     }
 
+    // 6) Nom du produit (descripteur string iProduct, UTF-16LE -> ASCII)
+    char name[40]; name[0] = 0;
+    if (iproduct) {
+        memset(buf, 0, 80);
+        if (control_in(ep0_ring, ep0_phys, &ep0_idx, &ep0_cycle, slot,
+                       0x80, 6, (0x03 << 8) | iproduct, 0x0409, 64, buf_phys) == 0) {
+            int len = buf[0]; if (len > 64) len = 64;
+            int o = 0;
+            for (int i = 2; i + 1 < len && o < (int)sizeof(name) - 1; i += 2) {
+                uint8_t c = buf[i];
+                name[o++] = (c >= 32 && c < 127) ? (char)c : ' ';
+            }
+            name[o] = 0;
+        }
+    }
+
     if (dev_count < 16) {
         usb_dev_t *d = &devs[dev_count++];
         d->slot = slot; d->port = port; d->speed = speed;
         d->vendor = vid; d->product = pid; d->dev_class = dclass; d->if_class = iclass;
+        int k = 0; for (; name[k] && k < (int)sizeof(d->name) - 1; k++) d->name[k] = name[k];
+        d->name[k] = 0;
     }
-    kprintf("[xhci] port %d : peripherique %x:%x classe=%x (slot %d)\n",
-            port, vid, pid, iclass ? iclass : dclass, slot);
+    kprintf("[xhci] port %d : %s %x:%x classe=%x (slot %d)\n",
+            port, name[0] ? name : "peripherique", vid, pid, iclass ? iclass : dclass, slot);
 
     // memorise l'etat du peripherique (pour la configuration HID ulterieure)
     if (slot < 16) {

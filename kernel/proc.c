@@ -525,7 +525,9 @@ long syscall_dispatch(sysargs_t *a) {
         usbinfo_t *u = (usbinfo_t *)a->rsi;
         if (u) { u->vendor = d->vendor; u->product = d->product;
                  u->dev_class = d->dev_class; u->if_class = d->if_class;
-                 u->speed = d->speed; u->port = d->port; }
+                 u->speed = d->speed; u->port = d->port;
+                 int k = 0; for (; d->name[k] && k < 39; k++) u->name[k] = d->name[k];
+                 u->name[k] = 0; }
         return 1;
     }
     case SYS_usb_disk: {

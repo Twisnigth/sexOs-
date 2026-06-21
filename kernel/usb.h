@@ -14,6 +14,7 @@ typedef struct {
     uint16_t vendor, product;
     uint8_t  dev_class;      // bDeviceClass (souvent 0)
     uint8_t  if_class;       // classe de la 1re interface (HID=3, stockage=8, hub=9)
+    char     name[40];       // nom produit (descripteur string iProduct)
 } usb_dev_t;
 
 void  usb_init(void);                       // detecte le xHCI et enumere

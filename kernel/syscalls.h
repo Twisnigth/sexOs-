@@ -120,6 +120,7 @@ typedef struct {
 typedef struct {
     uint16_t vendor, product;
     uint8_t  dev_class, if_class, speed, port;
+    char     name[40];       // nom produit (vide si inconnu)
 } usbinfo_t;
 
 // État du disque de masse USB (SYS_usb_disk), pour les commandes usbdisk/usbrd/usbwr.
