@@ -68,6 +68,8 @@ bool users_can_admin(void) { return users_is_admin(); }
 bool users_can_write_path(const char *path) {
     if (!current) return false;
     if (current->is_admin) return true;            // l'admin écrit partout
+    // Les supports amovibles montés sous /media (clé USB) sont accessibles à tous.
+    if (strncmp(path, "/media/", 7) == 0) return true;
     // Un utilisateur standard n'écrit que dans son dossier personnel.
     size_t n = strlen(current->home);
     return strncmp(path, current->home, n) == 0 &&
