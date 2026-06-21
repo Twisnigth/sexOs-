@@ -11,6 +11,10 @@ void *memset(void *, int, unsigned long);
 static int      comp_pid;
 static int      my_win, my_shm;
 static canvas_t wcanvas;
+static int      create_flags;            // options pour la prochaine win_create
+
+// À appeler AVANT win_create pour rendre la fenêtre redimensionnable.
+void win_set_resizable(int on) { create_flags = on ? WIN_RESIZABLE : 0; }
 
 static void wait_compositor(void) {
     while (!(comp_pid = sys_comp_pid())) sys_yield();   // coopératif (pas de busy-poll)
@@ -19,7 +23,7 @@ static void wait_compositor(void) {
 canvas_t *win_create(int w, int h, const char *title) {
     wait_compositor();
     wmsg_t m; memset(&m, 0, sizeof m);
-    m.type = WMSG_CREATE; m.w = w; m.h = h;
+    m.type = WMSG_CREATE; m.w = w; m.h = h; m.flags = create_flags;
     int i = 0; while (title[i] && i < 31) { m.title[i] = title[i]; i++; } m.title[i] = 0;
     sys_ipc_send(comp_pid, &m, sizeof m);
 
@@ -59,5 +63,15 @@ int win_poll(event_t *ev) {
     if (n <= 0) return 0;
     if (r.type == WMSG_CLOSE) return -1;
     if (r.type == WMSG_EVENT) { *ev = r.ev; return 1; }
+    if (r.type == WMSG_RESIZE) {                 // le compositeur a redimensionné
+        uint64_t va = 0;
+        my_shm = r.shm;
+        if (sys_shm_map(my_shm, &va) == 0) {
+            wcanvas.pixels = (uint32_t *)(uintptr_t)va;
+            wcanvas.width  = (uint32_t)r.w; wcanvas.height = (uint32_t)r.h;
+            wcanvas.pitch  = (uint32_t)r.w * 4;
+        }
+        return 2;                                // l'appli doit se redessiner à la nouvelle taille
+    }
     return 0;
 }

@@ -201,6 +201,7 @@ static void on_mouse(const event_t *e) {
 }
 
 int main(void) {
+    win_set_resizable(1);
     cv = win_create(W, H, "Explorateur");
     if (!cv) return 1;
     strcpy(cwd, "/home/user");
@@ -212,8 +213,10 @@ int main(void) {
     for (;;) {
         event_t ev; int r = win_wait(&ev);
         if (r < 0) sys_exit(0);
-        if (ev.type == EV_KEY) { if (ev.pressed) on_key(&ev); }
-        else if (ev.type == EV_MOUSE) on_mouse(&ev);
-        redraw();
+        if (r == 1) {
+            if (ev.type == EV_KEY) { if (ev.pressed) on_key(&ev); }
+            else if (ev.type == EV_MOUSE) on_mouse(&ev);
+        }
+        redraw();   // redessine aussi sur redimensionnement (r==2)
     }
 }

@@ -23,6 +23,8 @@ typedef struct { uint8_t second, minute, hour, day, month; uint16_t year; } rtct
 
 typedef struct {
     int used, id, owner, shm, min;   // min = fenetre reduite (cachee, presente dans le dock)
+    int max, resizable;               // maximisee ; autorise le redimensionnement
+    int sx, sy, sw, sh;               // geometrie memorisee (avant maximisation)
     uint32_t *px;          // tampon partagé (mappé dans le compositeur)
     int x, y, w, h;
     char title[32];
@@ -45,6 +47,8 @@ static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 }
 static win_t *find(int id) { for (int i = 0; i < MAXW; i++) if (wins[i].used && wins[i].id == id) return &wins[i]; return 0; }
 static int top_index = -1;     // dernière fenêtre cliquée (focus / dessus)
+static int resizing = -1;      // fenêtre en cours de redimensionnement (bande élastique)
+static int rs_w, rs_h;         // taille en cours (pendant le glissement)
 
 // --- Dock : menu de lancement d'applications ---------------------------------
 //  L'ordre/les identifiants doivent correspondre aux constantes APP_* (noyau).
@@ -58,6 +62,7 @@ static const struct { const char *name; int app; uint32_t icon; } g_menu[] = {
     { "Parametres",   APP_SETTINGS, 0xb48cf0 },
     { "Calculatrice", APP_CALC,     0xf0a020 },
     { "Dessin",       APP_PAINT,    0xf060a0 },
+    { "Images",       APP_IMGVIEW,  0x60c0f0 },
 };
 #define NMENU  ((int)(sizeof g_menu / sizeof g_menu[0]))
 #define MENU_W 178
@@ -141,6 +146,7 @@ static void handle_create(int owner, wmsg_t *req) {
     if (shm < 0) return;
     win_t *win = &wins[slot];
     win->used = 1; win->id = next_id++; win->owner = owner; win->shm = (int)shm;
+    win->min = 0; win->max = 0; win->resizable = (req->flags & WIN_RESIZABLE) ? 1 : 0;
     win->px = (uint32_t *)(uintptr_t)va; win->w = w; win->h = h;
     win->x = next_x; win->y = next_y; next_x += 40; next_y += 36;
     if (next_x > 600) { next_x = 80; next_y = 70; }
@@ -150,6 +156,40 @@ static void handle_create(int owner, wmsg_t *req) {
     wmsg_t r; memset(&r, 0, sizeof r);
     r.type = WMSG_CREATED; r.win = win->id; r.shm = win->shm; r.w = w; r.h = h;
     sys_ipc_send(owner, &r, sizeof r);
+}
+
+#define WIN_MINW 160
+#define WIN_MINH 90
+
+// Redimensionne une fenêtre : alloue un nouveau tampon partagé et prévient
+// l'application (qui le mappe et se redessine).
+static void do_resize(win_t *win, int nw, int nh) {
+    if (nw < WIN_MINW) nw = WIN_MINW;
+    if (nh < WIN_MINH) nh = WIN_MINH;
+    if (nw > (int)back.width)  nw = (int)back.width;
+    if (nh > (int)back.height - TB) nh = (int)back.height - TB;
+    if (nw == win->w && nh == win->h) return;
+    uint64_t va = 0;
+    long shm = sys_shm_create((unsigned long)nw * nh * 4, &va);
+    if (shm < 0) return;
+    win->shm = (int)shm; win->px = (uint32_t *)(uintptr_t)va;
+    win->w = nw; win->h = nh;
+    for (int i = 0; i < nw * nh; i++) win->px[i] = rgb(0x20, 0x22, 0x2c);  // fond neutre
+    wmsg_t m; memset(&m, 0, sizeof m);
+    m.type = WMSG_RESIZE; m.win = win->id; m.shm = win->shm; m.w = nw; m.h = nh;
+    sys_ipc_send(win->owner, &m, sizeof m);
+}
+
+// Bascule maximisé / restauré.
+static void toggle_max(win_t *win) {
+    if (!win->max) {
+        win->sx = win->x; win->sy = win->y; win->sw = win->w; win->sh = win->h;
+        win->x = 0; win->y = 0; win->max = 1;
+        do_resize(win, (int)back.width, (int)back.height - TB - DOCK_H);
+    } else {
+        win->x = win->sx; win->y = win->sy; win->max = 0;
+        do_resize(win, win->sw, win->sh);
+    }
 }
 
 static void send_event(win_t *win, const event_t *e) {
@@ -165,9 +205,14 @@ static void draw_window(win_t *win, int focused) {
     canvas_fill_rect(&back, win->x, win->y, win->w, win->h + TB, rgb(0x20, 0x22, 0x2c));
     canvas_fill_rect(&back, win->x, win->y, win->w, TB, tb);
     canvas_draw_string(&back, win->title, win->x + 8, win->y + 4, rgb(255, 255, 255), 1);
-    // bouton reduire (orange) + son glyphe (barre)
-    canvas_fill_rect(&back, win->x + win->w - 36, win->y + 4, 14, 14, rgb(0xe0, 0xb0, 0x4f));
-    canvas_fill_rect(&back, win->x + win->w - 33, win->y + 13, 8, 2, rgb(0x20, 0x20, 0x20));
+    // bouton reduire (orange) + glyphe barre
+    canvas_fill_rect(&back, win->x + win->w - 54, win->y + 4, 14, 14, rgb(0xe0, 0xb0, 0x4f));
+    canvas_fill_rect(&back, win->x + win->w - 51, win->y + 13, 8, 2, rgb(0x20, 0x20, 0x20));
+    // bouton maximiser (vert, seulement si redimensionnable)
+    if (win->resizable) {
+        canvas_fill_rect(&back, win->x + win->w - 36, win->y + 4, 14, 14, rgb(0x4f, 0xc0, 0x6a));
+        canvas_draw_rect(&back, win->x + win->w - 33, win->y + 7, 8, 8, rgb(0x18, 0x18, 0x18));
+    }
     // bouton fermer (rouge)
     canvas_fill_rect(&back, win->x + win->w - 18, win->y + 4, 14, 14, rgb(0xe0, 0x4f, 0x4f));
     canvas_draw_string(&back, "x", win->x + win->w - 15, win->y + 4, rgb(255, 255, 255), 1);
@@ -175,6 +220,13 @@ static void draw_window(win_t *win, int focused) {
     canvas_t wc = { win->px, (uint32_t)win->w, (uint32_t)win->h, (uint32_t)win->w * 4 };
     canvas_blit(&back, &wc, win->x, win->y + TB);
     canvas_draw_rect(&back, win->x, win->y, win->w, win->h + TB, rgb(0x55, 0x5a, 0x6a));
+    // poignee de redimensionnement (coin bas-droit) si redimensionnable
+    if (win->resizable) {
+        int gy = win->y + TB + win->h - 14;
+        for (int k = 2; k <= 12; k += 4)
+            canvas_draw_line(&back, win->x + win->w - 14 + k, win->y + TB + win->h - 2,
+                             win->x + win->w - 2, gy + k, rgb(0x88, 0x90, 0xa0));
+    }
 }
 
 // --- Composition optimisée (rectangles modifiés + curseur « save-under ») ----
@@ -253,6 +305,12 @@ static void compose_back(void) {
                        12, 8, rgb(0x9a, 0xc8, 0xff), 1);
     for (int i = 0; i < MAXW; i++) if (wins[i].used && !wins[i].min && i != top_index) draw_window(&wins[i], 0);
     if (top_index >= 0 && wins[top_index].used && !wins[top_index].min) draw_window(&wins[top_index], 1);
+    // bande élastique pendant un redimensionnement
+    if (resizing >= 0 && wins[resizing].used) {
+        win_t *w = &wins[resizing];
+        canvas_draw_rect(&back, w->x, w->y, rs_w, rs_h + TB, rgb(0x9a, 0xc8, 0xff));
+        canvas_draw_rect(&back, w->x + 1, w->y + 1, rs_w - 2, rs_h + TB - 2, rgb(0x9a, 0xc8, 0xff));
+    }
     draw_dock();
     // notification (toast) au-dessus du dock
     if (sys_time_ms() < toast_until && toast_msg[0]) {
@@ -327,13 +385,17 @@ int main(void) {
                         if (!w->used || w->min) continue;
                         if (cx >= w->x && cx < w->x + w->w && cy >= w->y && cy < w->y + w->h + TB) {
                             top_index = idx; need_recompose = 1; dirty_full();
-                            if (cy < w->y + TB) {       // barre de titre
+                            if (w->resizable && cx >= w->x + w->w - 16 && cy >= w->y + TB + w->h - 16) {
+                                resizing = idx; rs_w = w->w; rs_h = w->h;   // poignee de redim.
+                            } else if (cy < w->y + TB) {                    // barre de titre
                                 if (cx >= w->x + w->w - 18 && cx < w->x + w->w - 4) {
                                     wmsg_t c; memset(&c, 0, sizeof c); c.type = WMSG_CLOSE; c.win = w->id;
                                     sys_ipc_send(w->owner, &c, sizeof c);
                                     w->used = 0;
-                                } else if (cx >= w->x + w->w - 36 && cx < w->x + w->w - 22) {
-                                    w->min = 1; top_index = -1;   // reduire
+                                } else if (w->resizable && cx >= w->x + w->w - 36 && cx < w->x + w->w - 22) {
+                                    toggle_max(w);                          // maximiser/restaurer
+                                } else if (cx >= w->x + w->w - 54 && cx < w->x + w->w - 40) {
+                                    w->min = 1; top_index = -1;             // reduire
                                 } else { drag = idx; ddx = cx - w->x; ddy = cy - w->y; }
                             } else {
                                 send_event(w, &e);      // clic dans le contenu
@@ -343,8 +405,21 @@ int main(void) {
                     }
                 } else if (released) {
                     prevb = buttons; drag = -1;
+                    if (resizing >= 0) {                                    // applique le redim.
+                        do_resize(&wins[resizing], rs_w, rs_h);
+                        resizing = -1; need_recompose = 1; dirty_full();
+                    }
                 } else {
-                    if (drag >= 0) {
+                    if (resizing >= 0) {
+                        win_t *w = &wins[resizing];
+                        int ow = rs_w > w->w ? rs_w : w->w, oh = rs_h > w->h ? rs_h : w->h;
+                        dirty_add(w->x, w->y, ow + 4, oh + TB + 4);
+                        rs_w = cx - w->x; rs_h = cy - (w->y + TB);
+                        if (rs_w < WIN_MINW) rs_w = WIN_MINW;
+                        if (rs_h < WIN_MINH) rs_h = WIN_MINH;
+                        dirty_add(w->x, w->y, rs_w + 4, rs_h + TB + 4);
+                        need_recompose = 1;
+                    } else if (drag >= 0) {
                         dirty_add(wins[drag].x, wins[drag].y, wins[drag].w, wins[drag].h + TB);  // ancienne position
                         wins[drag].x = cx - ddx; wins[drag].y = cy - ddy;
                         dirty_add(wins[drag].x, wins[drag].y, wins[drag].w, wins[drag].h + TB);  // nouvelle position

@@ -193,6 +193,7 @@ static void redraw(void) {
 }
 
 int main(void) {
+    win_set_resizable(1);
     cv = win_create(W, H, "Moniteur d'activite");
     if (!cv) return 1;
     sample();
@@ -203,7 +204,8 @@ int main(void) {
         event_t e; int r;
         while ((r = win_poll(&e)) != 0) {
             if (r < 0) sys_exit(0);
-            if (r == 1 && e.type == EV_KEY && e.pressed && (e.ch == 'q' || e.ch == 'Q')) sys_exit(0);
+            if (r == 2) redraw();                 // redimensionnement
+            else if (r == 1 && e.type == EV_KEY && e.pressed && (e.ch == 'q' || e.ch == 'Q')) sys_exit(0);
         }
         uint64_t now = sys_time_ms();
         if (now - last >= 600) { last = now; sample(); redraw(); }
