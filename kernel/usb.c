@@ -17,6 +17,7 @@
 #include "input.h"
 #include "framebuffer.h"
 #include "fs.h"
+#include "sched.h"
 
 // --- TRB (Transfer Request Block) : 16 octets --------------------------------
 typedef struct { uint64_t param; uint32_t status; uint32_t control; } __attribute__((packed)) trb_t;
@@ -561,8 +562,8 @@ void usb_task(void) {
     int tick = 0;
     for (;;) {
         usb_poll();
-        if (++tick >= 50) { tick = 0; usb_hotplug_scan(); }
-        pit_sleep_ms(4);
+        if (++tick >= 64) { tick = 0; usb_hotplug_scan(); }   // ~256 ms
+        sched_sleep_ms(4);   // dort 4 ms (libère le CPU au lieu de le garder halté)
     }
 }
 

@@ -32,6 +32,7 @@
 #define SYS_ipc_send    0x220      // ipc_send(dest_pid, buf, len)
 #define SYS_ipc_recv    0x221      // ipc_recv(buf, maxlen, *sender) -> len ou -1 (non bloquant)
 #define SYS_ipc_wait    0x226      // bloque jusqu'à l'arrivée d'un message
+#define SYS_wait_event  0x227      // (timeout_ms) bloque jusqu'à une entrée OU un message IPC OU le délai
 #define SYS_shm_create  0x222      // shm_create(size, *out_va) -> shm_id
 #define SYS_shm_map     0x223      // shm_map(id, *out_va) -> 0/-1
 #define SYS_comp_register 0x224    // s'enregistre comme compositeur

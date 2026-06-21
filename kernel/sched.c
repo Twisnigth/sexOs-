@@ -10,6 +10,7 @@
 #include "elf.h"
 #include "klib.h"
 #include "serial.h"
+#include "pit.h"
 
 // Primitives assembleur (switch.asm).
 extern void sched_resume(registers_t *ctx);        // reprend une tâche, sans retour
@@ -214,7 +215,22 @@ registers_t *sched_switch_from(registers_t *r) {
 }
 
 void sched_wake(task_t *t) {
-    if (t && t->state == TASK_BLOCKED) t->state = TASK_READY;
+    if (t && t->state == TASK_BLOCKED) { t->state = TASK_READY; t->wake_at = 0; }
+}
+
+// Endort la tâche noyau courante : elle quitte la file d'exécution (ne consomme
+// plus de tranches) jusqu'à l'échéance, réveillée par le minuteur.
+void sched_sleep_ms(uint32_t ms) {
+    if (!active || !current || current == idle_task) {
+        uint64_t t = pit_ms() + ms;
+        while (pit_ms() < t) __asm__ volatile ("hlt");
+        return;
+    }
+    current->wake_at = pit_ms() + ms;
+    current->state   = TASK_BLOCKED;
+    // L'IRQ minuteur commute hors de cette tâche (état BLOCKED) ; au réveil
+    // (état READY/RUNNING) la condition redevient fausse et on rend la main.
+    while (current->state == TASK_BLOCKED) __asm__ volatile ("hlt" ::: "memory");
 }
 
 // Repli vers le noyau quand plus aucune tâche n'est prête (mode démo).
@@ -231,6 +247,12 @@ static void back_to_kernel(void) {
 // --- Points d'entrée depuis le répartiteur d'interruptions -------------------
 registers_t *sched_on_timer(registers_t *r) {
     if (!active || !current) return r;
+    // réveille les tâches endormies dont l'échéance est passée
+    uint64_t now = pit_ms();
+    for (int i = 0; i < SCHED_MAX_TASKS; i++)
+        if (tasks[i].state == TASK_BLOCKED && tasks[i].wake_at && tasks[i].wake_at <= now) {
+            tasks[i].state = TASK_READY; tasks[i].wake_at = 0;
+        }
     current->cpu_ticks++;                        // le top écoulé a servi CETTE tâche
     current->ctx = (uint64_t)r;                 // sauvegarde le point de préemption
     if (current->state == TASK_RUNNING) current->state = TASK_READY;

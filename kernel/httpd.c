@@ -10,6 +10,7 @@
 #include "vfs.h"
 #include "klib.h"
 #include "pit.h"
+#include "sched.h"
 
 #define WEBROOT "/home/user"
 
@@ -27,7 +28,7 @@ static int h_read(int c, char *buf, int max, uint64_t deadline) {
         __asm__ volatile ("cli"); int n = tcp_read(c, buf, max); __asm__ volatile ("sti");
         if (n != 0) return n;
         if (pit_ms() > deadline) return 0;
-        __asm__ volatile ("hlt");
+        sched_sleep_ms(1);
     }
 }
 static bool h_write(int c, const char *buf, int len) {
@@ -36,7 +37,7 @@ static bool h_write(int c, const char *buf, int len) {
         __asm__ volatile ("cli"); int n = tcp_write(c, buf + off, len - off); __asm__ volatile ("sti");
         if (n > 0) { off += n; dl = pit_ms() + 8000; }
         else if (n < 0) return false;
-        else { if (pit_ms() > dl) return false; __asm__ volatile ("hlt"); }
+        else { if (pit_ms() > dl) return false; sched_sleep_ms(1); }
     }
     return true;
 }
@@ -56,7 +57,7 @@ static char body[65536];
 void httpd_run(void) {
     for (;;) {
         __asm__ volatile ("cli"); int c = httpd_ready ? tcp_accept_nb(80) : -1; __asm__ volatile ("sti");
-        if (c < 0) { __asm__ volatile ("hlt"); continue; }
+        if (c < 0) { sched_sleep_ms(5); continue; }
 
         // --- Lecture de la requete (jusqu'a la fin des en-tetes) ---
         int n = 0; uint64_t dl = pit_ms() + 5000;

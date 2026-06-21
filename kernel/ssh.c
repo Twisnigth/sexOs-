@@ -10,6 +10,7 @@
 #include "crypto.h"
 #include "klib.h"
 #include "pit.h"
+#include "sched.h"
 
 #define MSG_DISCONNECT     1
 #define MSG_IGNORE         2
@@ -977,7 +978,7 @@ void sshd_run(void) {
         __asm__ volatile ("cli");
         int conn = server_ready ? tcp_accept_nb(22) : -1;
         __asm__ volatile ("sti");
-        if (conn < 0) { __asm__ volatile ("hlt"); continue; }
+        if (conn < 0) { sched_sleep_ms(5); continue; }
         kprintf("[sshd] connexion entrante\n");
         memset(&s, 0, sizeof(s));
         s.conn = conn;

@@ -191,7 +191,33 @@ static void dirty_add(int x, int y, int w, int h) {
 }
 static void dirty_full(void) { d_full = 1; d_any = 1; }
 
-// Peint screen[rect] = back[rect] avec le CURSEUR (blanc) superposé là où il se
+// --- Curseur fleche (plus lisible) : contour noir + remplissage blanc --------
+//  'X' = contour (noir), '.' = remplissage (blanc), ' ' = transparent.
+#define CUR_W 12
+#define CUR_H 19
+static const char *cursor_bmp[CUR_H] = {
+    "X           ",
+    "XX          ",
+    "X.X         ",
+    "X..X        ",
+    "X...X       ",
+    "X....X      ",
+    "X.....X     ",
+    "X......X    ",
+    "X.......X   ",
+    "X........X  ",
+    "X.........X ",
+    "X.....XXXXXX",
+    "X..X..X     ",
+    "X.X X..X    ",
+    "XX  X..X    ",
+    "X    X..X   ",
+    "     X..X   ",
+    "      X..X  ",
+    "       XX   ",
+};
+
+// Peint screen[rect] = back[rect] avec le CURSEUR (fleche) superposé là où il se
 // trouve (curx,cury). Chaque pixel reçoit DIRECTEMENT sa valeur finale en un seul
 // passage : il n'existe jamais d'état intermédiaire « effacé » à l'écran, donc
 // pas de clignotement (contrairement à un effacer-puis-redessiner en deux temps).
@@ -204,9 +230,20 @@ static void paint(int x, int y, int w, int h, int curx, int cury) {
     for (int yy = y; yy < y + h; yy++) {
         const uint32_t *s = (const uint32_t *)((const uint8_t *)back.pixels + yy * back.pitch);
         uint32_t *dd = (uint32_t *)((uint8_t *)screen.pixels + yy * screen.pitch);
-        int in_cur_row = (yy >= cury && yy < cury + 8);
-        for (int xx = x; xx < x + w; xx++)
-            dd[xx] = (in_cur_row && xx >= curx && xx < curx + 8) ? 0xFFFFFF : s[xx];
+        int cr = yy - cury;
+        int in_cur_row = (cr >= 0 && cr < CUR_H);
+        for (int xx = x; xx < x + w; xx++) {
+            uint32_t v = s[xx];
+            if (in_cur_row) {
+                int cc = xx - curx;
+                if (cc >= 0 && cc < CUR_W) {
+                    char p = cursor_bmp[cr][cc];
+                    if (p == 'X') v = 0x000000;
+                    else if (p == '.') v = 0xFFFFFF;
+                }
+            }
+            dd[xx] = v;
+        }
     }
 }
 // Recompose tout le bureau (sans curseur) dans 'back' (mémoire cache : rapide).
@@ -349,15 +386,18 @@ int main(void) {
             else paint(d_x0, d_y0, d_x1 - d_x0, d_y1 - d_y0, cx, cy);
         }
         if (cx != pcx || cy != pcy) {
-            paint(cx, cy, 8, 8, cx, cy);          // nouvelle position D'ABORD (curseur dessiné)
-            paint(pcx, pcy, 8, 8, cx, cy);        // efface l'ancienne (curseur déjà ailleurs)
+            paint(cx, cy, CUR_W, CUR_H, cx, cy);          // nouvelle position D'ABORD (curseur dessiné)
+            paint(pcx, pcy, CUR_W, CUR_H, cx, cy);        // efface l'ancienne (curseur déjà ailleurs)
             pcx = cx; pcy = cy;
         } else if (!need_recompose) {
-            paint(cx, cy, 8, 8, cx, cy);          // au repos : confirme le curseur (idempotent)
+            paint(cx, cy, CUR_W, CUR_H, cx, cy);          // au repos : confirme le curseur (idempotent)
         }
         // Framebuffer en Write-Combining : SFENCE vide le tampon WC du CPU pour que
         // tout (curseur compris) atteigne la VRAM immédiatement.
         __asm__ volatile ("sfence" ::: "memory");
-        sys_yield();                     // commutation coopérative (pas de busy-poll)
+        // Dort jusqu'au prochain événement (entrée/IPC) ou ~100 ms (horloge,
+        // récupération des fenêtres orphelines). Ne consomme plus le CPU au repos
+        // et réagit instantanément aux entrées -> mouvements fluides.
+        sys_wait_event(100);
     }
 }

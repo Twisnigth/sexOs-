@@ -4,6 +4,7 @@
 #include "net.h"
 #include "klib.h"
 #include "pit.h"
+#include "sched.h"
 
 netif_t netif;
 extern bool e1000_init(void);
@@ -147,6 +148,6 @@ void net_task_run(void) {
         tcp_tick();          // (re)transmissions et délais TCP
         dns_tick();          // (re)transmissions et délai DNS
         __asm__ volatile ("sti");
-        __asm__ volatile ("hlt");
+        sched_sleep_ms(1);   // dort 1 ms (libère le CPU au lieu de le garder halté)
     }
 }

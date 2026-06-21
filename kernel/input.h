@@ -44,4 +44,9 @@ void input_init(void);
 void input_push(const event_t *e);
 bool input_poll(event_t *out);   // non bloquant ; false si file vide
 
+// --- Réveil du compositeur sur entrée (perf : il dort au lieu de scruter) -----
+struct task;
+void input_set_waiter(struct task *t);   // tâche à réveiller quand un événement arrive
+bool input_pending(void);                // un événement est-il en attente ?
+
 #endif

@@ -38,8 +38,13 @@ typedef struct task {
     int          exit_code;
     uint64_t     cpu_ticks;     // tops du minuteur passés à exécuter CETTE tâche
     uint64_t     mem_pages;     // pages physiques attribuées (approx., pour le moniteur)
+    uint64_t     wake_at;       // si BLOCKED + non nul : échéance de réveil (ms PIT)
     const char  *name;
 } task_t;
+
+// Endort la tâche NOYAU courante pendant ms (la retire de la file d'exécution :
+// elle ne consomme plus de tranches CPU). Pour les services qui scrutent.
+void sched_sleep_ms(uint32_t ms);
 
 // IPC : recherche d'une tâche par pid (pour la livraison de messages).
 task_t *sched_task_by_pid(int pid);

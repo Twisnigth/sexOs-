@@ -164,6 +164,18 @@ registers_t *syscall_enter(registers_t *r) {
         }
         r->rax = 0;
         return r;
+    case SYS_wait_event:
+        // Le compositeur dort jusqu'à une entrée, un message IPC, ou le délai.
+        // Pendant le syscall les IRQ sont masquées (FMASK) : la vérification et
+        // le blocage sont atomiques (pas de réveil perdu).
+        if (me && !input_pending() && me->mbox_head == me->mbox_tail) {
+            uint32_t to = (uint32_t)r->rdi; if (!to) to = 100;
+            me->wake_at = pit_ms() + to;
+            me->state = TASK_BLOCKED;
+            return sched_switch_from(r);
+        }
+        r->rax = 0;
+        return r;
     case SYS_exit: case SYS_exit_group:
         if (sched_active() && me) {
             me->exit_code = (int)r->rdi;
@@ -398,7 +410,9 @@ long syscall_dispatch(sysargs_t *a) {
         return 0;
     }
     case SYS_comp_register: {
-        task_t *c = sched_current(); compositor_pid = c ? c->pid : 0; return 0;
+        task_t *c = sched_current(); compositor_pid = c ? c->pid : 0;
+        input_set_waiter(c);          // réveille le compositeur quand une entrée arrive
+        return 0;
     }
     case SYS_comp_pid:
         return compositor_pid;
