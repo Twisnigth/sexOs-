@@ -178,6 +178,15 @@ void usbfs_mount(void) {
     else { usb_mounted = false; kprintf("[usbfs] cle USB presente mais montage impossible (E/S)\n"); }
 }
 
+// Démonte /media/usb (clé retirée à chaud).
+void usbfs_unmount(void) {
+    usb_mounted = false;
+    vfs_node_t *media = vfs_lookup(vfs_root(), "media");
+    if (!media) return;
+    vfs_node_t *usb = vfs_lookup(media, "usb");
+    if (usb) vfs_delete(usb);
+}
+
 // Persiste la mutation selon son chemin : la cle USB pour /media/usb, sinon le
 // disque systeme.
 static bool path_in_usb(const char *p) {

@@ -16,6 +16,7 @@
 #include "klib.h"
 #include "input.h"
 #include "framebuffer.h"
+#include "fs.h"
 
 // --- TRB (Transfer Request Block) : 16 octets --------------------------------
 typedef struct { uint64_t param; uint32_t status; uint32_t control; } __attribute__((packed)) trb_t;
@@ -95,6 +96,10 @@ static const char hid2az_shift[256] = {
     [0x1D]='W',[0x1B]='X',[0x06]='C',[0x19]='V',[0x05]='B',[0x11]='N',[0x10]='?',[0x36]='.',[0x37]='/',[0x38]='!',
     [0x64]='|', [0x2C]=' ',
 };
+
+// declarations anticipees (hot-plug + dispatch des rapports HID)
+static bool dispatch_hid(uint8_t slot);
+static void usb_hotplug_scan(void);
 
 // --- acces registres ---------------------------------------------------------
 static inline uint32_t rd32(volatile uint8_t *b, uint32_t o) { return *(volatile uint32_t *)(b + o); }
@@ -196,7 +201,8 @@ static int cmd_exec(uint64_t param, uint32_t control, uint8_t *slot_out) {
             if (slot_out) *slot_out = (e.control >> 24) & 0xFF;
             return (e.status >> 24) & 0xFF;    // completion code (1 = success)
         }
-        // autre evenement -> on continue a scruter
+        // rapport HID croise (clavier/souris deja actifs) -> on le traite
+        if (((e.control >> 10) & 0x3F) == TR_TRANSFER) dispatch_hid((e.control >> 24) & 0xFF);
     }
     return 0;
 }
@@ -230,13 +236,17 @@ static int control_in(trb_t *ep0_ring, uint64_t ep0_phys, int *ep0_idx, uint8_t 
     *ep0_idx = i; *ep0_cycle = cy;
     db[slot] = 1;                           // sonnette EP0 du slot
     trb_t e;
-    // attend le Transfer Event (type 32) lie a EP0, en ignorant le reste.
+    // attend le Transfer Event d'EP0 DE CE SLOT (en traitant les rapports HID
+    // d'autres slots qui pourraient arriver pendant une enumeration a chaud).
     for (int skip = 0; skip < 32; skip++) {
         if (!next_event(&e, 60000)) return -1;
-        if (((e.control >> 10) & 0x3F) == TR_TRANSFER) {
+        if (((e.control >> 10) & 0x3F) != TR_TRANSFER) continue;
+        uint8_t es = (e.control >> 24) & 0xFF;
+        if (es == slot) {
             uint8_t cc = (e.status >> 24) & 0xFF;   // 1=Success, 13=Short Packet (ok)
             return (cc == 1 || cc == 13) ? 0 : -1;
         }
+        dispatch_hid(es);                   // rapport HID d'un autre peripherique
     }
     return -1;
 }
@@ -375,10 +385,13 @@ static int control_nodata(xdev_t *x, uint8_t bmReq, uint8_t bReq,
     trb_t e;
     for (int skip = 0; skip < 32; skip++) {
         if (!next_event(&e, 60000)) return -1;
-        if (((e.control >> 10) & 0x3F) == TR_TRANSFER) {
+        if (((e.control >> 10) & 0x3F) != TR_TRANSFER) continue;
+        uint8_t es = (e.control >> 24) & 0xFF;
+        if (es == x->slot) {
             uint8_t cc = (e.status >> 24) & 0xFF;
             return (cc == 1 || cc == 13) ? 0 : -1;
         }
+        dispatch_hid(es);
     }
     return -1;
 }
@@ -523,9 +536,15 @@ static void usb_poll(void) {
     irq_restore(fl);
 }
 
-// Tache noyau : scrute les peripheriques HID en continu.
+// Tache noyau : scrute les rapports HID en continu + detecte les branchements
+// et retraits a chaud (clé USB, clavier, souris) toutes les ~200 ms.
 void usb_task(void) {
-    for (;;) { usb_poll(); pit_sleep_ms(4); }
+    int tick = 0;
+    for (;;) {
+        usb_poll();
+        if (++tick >= 50) { tick = 0; usb_hotplug_scan(); }
+        pit_sleep_ms(4);
+    }
 }
 
 // =============================================================================
@@ -707,6 +726,58 @@ static void msc_setup(xdev_t *x) {
 }
 
 // =============================================================================
+//  Branchement / retrait a chaud (hot-plug)
+// =============================================================================
+static bool port_present[16];          // un peripherique est-il connecte sur ce port ?
+
+// Configure le peripherique fraichement enumere sur le port p.
+static void configure_port_devices(int p) {
+    for (int s = 1; s < 16; s++) {
+        if (!xdevs[s].used || xdevs[s].port != p) continue;
+        if (xdevs[s].is_msc && !msc.ok)        { msc_setup(&xdevs[s]); usbfs_mount(); }
+        else if (xdevs[s].is_hid && !xdevs[s].ep_ring) hid_setup(&xdevs[s]);
+    }
+}
+
+// Reset du port + enumeration + configuration (clavier/souris/stockage).
+static void port_attach(int p) {
+    uint32_t sc = rd32(op, O_PORTSC(p));
+    wr32(op, O_PORTSC(p), (sc & 0x0E00C3E0) | (1u << 4));   // PR (reset)
+    wait_bit(O_PORTSC(p), (1u << 4), 0, 50000);
+    spin(1000000);
+    sc = rd32(op, O_PORTSC(p));
+    if (!(sc & (1u << 1))) return;                          // PED : port inactif
+    int before = dev_count;
+    enumerate_port(p);
+    if (dev_count > before) {
+        configure_port_devices(p);
+        kprintf("[usb] peripherique branche (port %d)\n", p);
+    }
+}
+
+// Retrait : libere le peripherique du port p (demonte la cle si c'en etait une).
+static void port_detach(int p) {
+    for (int s = 1; s < 16; s++) {
+        if (!xdevs[s].used || xdevs[s].port != p) continue;
+        if (xdevs[s].is_msc) { usbfs_unmount(); msc.ok = false; }
+        xdevs[s].used = false;
+        kprintf("[usb] peripherique retire (port %d)\n", p);
+    }
+}
+
+// Scrute tous les ports : detecte branchements et retraits (appelé périodiquement).
+static void usb_hotplug_scan(void) {
+    if (!xhci_ok) return;
+    uint64_t fl = irq_save();
+    for (int p = 1; p <= num_ports; p++) {
+        bool connected = rd32(op, O_PORTSC(p)) & 1;        // CCS
+        if (connected && !port_present[p])      { port_present[p] = true;  port_attach(p); }
+        else if (!connected && port_present[p]) { port_present[p] = false; port_detach(p); }
+    }
+    irq_restore(fl);
+}
+
+// =============================================================================
 //  Amorcage du controleur
 // =============================================================================
 void usb_init(void) {
@@ -802,4 +873,8 @@ void usb_init(void) {
         if (xdevs[s].used && xdevs[s].is_msc) msc_setup(&xdevs[s]);
     for (int s = 1; s < 16; s++)
         if (xdevs[s].used && xdevs[s].is_hid) hid_setup(&xdevs[s]);
+
+    // memorise l'etat de connexion des ports (pour detecter les changements a chaud)
+    for (int p = 1; p <= num_ports; p++)
+        port_present[p] = (rd32(op, O_PORTSC(p)) & 1) ? true : false;
 }
