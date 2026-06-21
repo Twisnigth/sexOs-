@@ -53,7 +53,14 @@ const usb_dev_t *usb_get(int i) { return (i >= 0 && i < dev_count) ? &devs[i] : 
 // --- acces registres ---------------------------------------------------------
 static inline uint32_t rd32(volatile uint8_t *b, uint32_t o) { return *(volatile uint32_t *)(b + o); }
 static inline void     wr32(volatile uint8_t *b, uint32_t o, uint32_t v) { *(volatile uint32_t *)(b + o) = v; }
-static inline void     wr64(volatile uint8_t *b, uint32_t o, uint64_t v) { *(volatile uint64_t *)(b + o) = v; }
+// IMPORTANT : ce contrôleur (QEMU) n'accepte que des accès MMIO 32 bits. Les
+// registres 64 bits doivent donc être écrits en DEUX écritures 32 bits (octet
+// de poids faible d'abord, puis poids fort) -- c'est aussi la méthode
+// recommandée par la spec xHCI.
+static inline void     wr64(volatile uint8_t *b, uint32_t o, uint64_t v) {
+    *(volatile uint32_t *)(b + o)     = (uint32_t)v;
+    *(volatile uint32_t *)(b + o + 4) = (uint32_t)(v >> 32);
+}
 
 // Op regs
 #define O_USBCMD 0x00
@@ -167,8 +174,10 @@ static void enumerate_port(int port) {
 
     // 1) Enable Slot
     uint8_t slot = 0;
-    if (cmd_exec(0, TRB_TYPE(TR_ENABLE_SLOT), &slot) != 1 || slot == 0) {
-        kprintf("[xhci] port %d : Enable Slot echec\n", port); return;
+    int cc = cmd_exec(0, TRB_TYPE(TR_ENABLE_SLOT), &slot);
+    if (cc != 1 || slot == 0) {
+        kprintf("[xhci] port %d : Enable Slot echec (code=%d slot=%d)\n", port, cc, slot);
+        return;
     }
 
     // 2) Contextes (32 octets) : input (33*32) + device (32*32) + anneau EP0
