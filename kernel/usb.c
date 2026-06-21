@@ -126,7 +126,13 @@ static void cmd_push(uint64_t param, uint32_t status, uint32_t control) {
 static int cmd_exec(uint64_t param, uint32_t control, uint8_t *slot_out) {
     cmd_push(param, 0, control);
     trb_t e;
-    if (!next_event(&e, 60000)) return 0;
+    if (!next_event(&e, 60000)) {
+        kprintf("[xhci] cmd timeout: USBSTS=%x USBCMD=%x CRCR_lo=%x evt[0]=%x/%x/%x ERDP_lo=%x IMAN=%x\n",
+                rd32(op, O_USBSTS), rd32(op, O_USBCMD), rd32(op, O_CRCR),
+                (uint32_t)evt_ring[0].param, evt_ring[0].status, evt_ring[0].control,
+                rd32(rt, R_ERDP), rd32(rt, 0x20));
+        return 0;
+    }
     if (((e.control >> 10) & 0x3F) != TR_CMD_COMPLETE) return 0;
     if (slot_out) *slot_out = (e.control >> 24) & 0xFF;
     return (e.status >> 24) & 0xFF;        // completion code (1 = success)
@@ -273,7 +279,8 @@ void usb_init(void) {
     db = (volatile uint32_t *)(cap + dboff);
     max_slots = hcs1 & 0xFF;
     num_ports = (hcs1 >> 24) & 0xFF;
-    kprintf("[xhci] xHCI v%x, caplen=%d, %d slots, %d ports\n", hciver, caplen, max_slots, num_ports);
+    kprintf("[xhci] xHCI v%x, caplen=%d, %d slots, %d ports (dboff=%x rtsoff=%x)\n",
+            hciver, caplen, max_slots, num_ports, dboff, rtsoff);
 
     // stop + reset
     wr32(op, O_USBCMD, rd32(op, O_USBCMD) & ~1u);
@@ -307,11 +314,17 @@ void usb_init(void) {
     wr32(rt, R_ERSTSZ, 1);
     wr64(rt, R_ERDP, evt_ring_phys);
     wr64(rt, R_ERSTBA, erst_phys);
+    // active l'interrupteur 0 (IMAN.IE) -- inoffensif et requis par certains
+    // contrôleurs avant de poster des evenements.
+    wr32(rt, 0x20, 0x2);
 
     // run
     wr32(op, O_USBCMD, rd32(op, O_USBCMD) | 1u);
     if (!wait_bit(O_USBSTS, 1, 0, 60000)) { kprintf("[xhci] demarrage timeout\n"); return; }
     xhci_ok = true;
+    kprintf("[xhci] running: USBSTS=%x CRCR_lo=%x cmd_phys=%x evt_phys=%x erst_phys=%x\n",
+            rd32(op, O_USBSTS), rd32(op, O_CRCR), (uint32_t)cmd_ring_phys,
+            (uint32_t)evt_ring_phys, (uint32_t)erst_phys);
 
     // reset + enumeration des ports connectes
     for (int p = 1; p <= num_ports; p++) {
