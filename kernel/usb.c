@@ -606,7 +606,7 @@ static int bulk_xfer(trb_t *ring, uint64_t ring_phys, int *idx, uint8_t *cycle,
     db[msc.slot] = dci;
     for (int skip = 0; skip < 64; skip++) {
         trb_t e;
-        if (!next_event(&e, 300000)) return 0;
+        if (!next_event(&e, 3000000)) return 0;   // tolere les hotes lents (gros transferts)
         if (((e.control >> 10) & 0x3F) != TR_TRANSFER) continue;
         uint8_t es = (e.control >> 24) & 0xFF;
         uint8_t ed = (e.control >> 16) & 0x1F;

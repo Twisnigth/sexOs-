@@ -220,13 +220,10 @@ static void vol_mount(const char *name, blk_rd_t rd, blk_wr_t wr, const char *la
         kprintf("[mount] %s : format non reconnu (donnees preservees, non monte)\n", label);
         return;
     }
-    // 3) support vierge : on le formate en FAT32 (cross-platform par defaut)
-    if (!any_fat && nsec >= 70000 && fat_format(rd, wr, nsec) == 0 && fat_mount(rd, wr, node)) {
-        v->fat = true; any_fat = true;
-        kprintf("[mount] %s formate en FAT32 et monte sur %s (lisible Windows/Mac)\n", label, v->mp);
-        return;
-    }
-    // 4) repli : format interne sexOs
+    // 3) support vierge : format interne sexOs (petit et fiable). Pour rendre une
+    //    cle lisible par Windows, utiliser "format usb" (FAT32) explicitement, ou
+    //    la formater en FAT32 sous Windows (sexOs la montera alors en FAT32).
+    (void)nsec;
     if (vol_write_node(v, node) == 0) kprintf("[mount] %s formate (sexOs) et monte sur %s\n", label, v->mp);
     else { v->used = false; kprintf("[mount] %s : montage impossible (E/S)\n", label); }
 }
