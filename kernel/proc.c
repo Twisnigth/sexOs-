@@ -449,7 +449,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *f = vfs_resolve(io->path);
         if (!f) return -1;
         int r = vfs_write(f, io->off, io->buf, io->len);
-        if (r >= 0) fs_persist(io->path);          // persistance (disque ou cle USB)
+        if (r >= 0) fs_on_write(io->path);         // persistance (disque / volume)
         return r;
     }
     case SYS_vfs_create: {
@@ -466,7 +466,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *p = vfs_resolve(parent);
         if (!p || p->type != VFS_DIR) return -1;
         int r = vfs_create(p, name, (a->rsi ? VFS_DIR : VFS_FILE)) ? 0 : -1;
-        if (r == 0) fs_persist(path);               // persistance (disque ou cle USB)
+        if (r == 0) fs_on_create(path, a->rsi ? 1 : 0);   // persistance (disque / volume)
         return r;
     }
     case SYS_vfs_delete: {
@@ -475,7 +475,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *n = vfs_resolve(path);
         if (!n) return -1;
         int r = vfs_delete(n) ? 0 : -1;
-        if (r == 0) fs_persist(path);               // persistance (disque ou cle USB)
+        if (r == 0) fs_on_delete(path);             // persistance (disque / volume)
         return r;
     }
     case SYS_vfs_save: {                          // remplace tout le fichier (tronque)
@@ -484,7 +484,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *f = vfs_resolve(io->path);
         if (!f || f->type != VFS_FILE) return -1;
         int r = vfs_replace(f, io->buf, io->len);
-        if (r >= 0) fs_persist(io->path);           // persistance (disque ou cle USB)
+        if (r >= 0) fs_on_write(io->path);          // persistance (disque / volume)
         return r;
     }
     case SYS_clip_set: {                          // presse-papiers : copier

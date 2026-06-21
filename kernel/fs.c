@@ -12,6 +12,7 @@
 #include "ahci.h"
 #include "vfs.h"
 #include "usb.h"
+#include "fat.h"
 #include "klib.h"
 
 #define FS_MAGIC "SEXOSFS1"
@@ -149,11 +150,13 @@ typedef bool (*blk_wr_t)(uint32_t, uint32_t, const void *);
 #define MAX_VOL 4
 typedef struct {
     bool     used;
+    bool     fat;                     // true = FAT32 (ecriture incrementale + Windows)
     char     mp[40];                  // point de montage, ex. "/media/usb"
     blk_rd_t rd;
     blk_wr_t wr;
 } vol_t;
 static vol_t vols[MAX_VOL];
+static bool  any_fat;                 // un volume FAT32 est-il deja monte ? (un seul gere)
 
 static vfs_node_t *media_child(const char *name, bool create) {
     vfs_node_t *media = vfs_lookup(vfs_root(), "media");
@@ -175,17 +178,32 @@ static int vol_write_node(vol_t *v, vfs_node_t *node) {
     return v->wr(0, secs, image) ? 0 : -1;
 }
 
-// Monte un peripherique bloc sous /media/<name> (formate s'il est vierge).
+static const char *vol_relpath(vol_t *v, const char *path) {
+    int n = (int)strlen(v->mp);
+    return (path[n] == '/') ? path + n + 1 : path + n;   // "" si path == point de montage
+}
+
+// Monte un peripherique bloc sous /media/<name> : FAT32 si reconnu (lisible
+// Windows), sinon format interne sexOs (formate s'il est vierge).
 static void vol_mount(const char *name, blk_rd_t rd, blk_wr_t wr, const char *label) {
     vfs_node_t *node = media_child(name, true);
     if (!node) return;
     vol_t *v = NULL;
     for (int i = 0; i < MAX_VOL; i++) if (!vols[i].used) { v = &vols[i]; break; }
     if (!v) return;
-    v->used = true; v->rd = rd; v->wr = wr;
+    v->used = true; v->fat = false; v->rd = rd; v->wr = wr;
     strcpy(v->mp, "/media/"); strcat(v->mp, name);
 
-    if (rd(0, 1, image) && memcmp(image, FS_MAGIC, 8) == 0) {
+    // 1) FAT32 (format universel) : un seul volume FAT gere a la fois
+    if (!any_fat && fat_mount(rd, wr, node)) {
+        v->fat = true; any_fat = true;
+        kprintf("[mount] %s monte sur %s (FAT32, lisible Windows/Mac)\n", label, v->mp);
+        return;
+    }
+
+    // 2) sinon : format interne sexOs (SEXOSFS1)
+    bool sig = rd(0, 1, image);
+    if (sig && memcmp(image, FS_MAGIC, 8) == 0) {
         uint32_t total = gu32(image, 8);
         if (total >= 16 && total <= FS_CAP && rd(0, (total + 511) / 512, image)) {
             size_t o = 12; uint32_t cnt = gu32(image, o); o += 4;
@@ -193,6 +211,13 @@ static void vol_mount(const char *name, blk_rd_t rd, blk_wr_t wr, const char *la
             kprintf("[mount] %s monte sur %s (%d entree(s))\n", label, v->mp, cnt);
             return;
         }
+    }
+    // SECURITE : ne JAMAIS ecraser un support deja formate qu'on ne sait pas lire
+    // (FAT32 non monte faute de place, exFAT, NTFS...). On preserve les donnees.
+    if (sig && image[510] == 0x55 && image[511] == 0xAA) {
+        v->used = false;
+        kprintf("[mount] %s : format non reconnu (donnees preservees, non monte)\n", label);
+        return;
     }
     if (vol_write_node(v, node) == 0) kprintf("[mount] %s formate et monte sur %s\n", label, v->mp);
     else { v->used = false; kprintf("[mount] %s : montage impossible (E/S)\n", label); }
@@ -226,14 +251,17 @@ void usbfs_mount(void) {     // monte la cle USB (appele aussi au branchement a 
 
 void usbfs_unmount(void) {   // cle retiree a chaud
     for (int i = 0; i < MAX_VOL; i++)
-        if (vols[i].used && strcmp(vols[i].mp, "/media/usb") == 0) vols[i].used = false;
+        if (vols[i].used && strcmp(vols[i].mp, "/media/usb") == 0) {
+            if (vols[i].fat) any_fat = false;
+            vols[i].used = false;
+        }
     vfs_node_t *usb = media_child("usb", false);
     if (usb) vfs_delete(usb);
 }
 
 int usbfs_sync(void) {
     vol_t *v = vol_for_path("/media/usb");
-    return v ? vol_sync(v) : -1;
+    return (v && !v->fat) ? vol_sync(v) : 0;   // le FAT ecrit deja a chaque operation
 }
 
 // Monte au demarrage les volumes supplementaires (disque SATA + cle USB).
@@ -242,14 +270,30 @@ void fs_mount_volumes(void) {
     usbfs_mount();
 }
 
-// Persiste une mutation : sur le volume /media/... concerne, sinon le disque systeme.
-int fs_persist(const char *path) {
+// --- Persistance, routee par chemin (volume FAT, volume sexOs, ou disque) -----
+void fs_on_create(const char *path, int is_dir) {
     vol_t *v = vol_for_path(path);
-    return v ? vol_sync(v) : fs_save();
+    if (!v) { fs_save(); return; }
+    if (v->fat) fat_create(vol_relpath(v, path), is_dir != 0);
+    else        vol_sync(v);
+}
+void fs_on_write(const char *path) {
+    vol_t *v = vol_for_path(path);
+    if (!v) { fs_save(); return; }
+    if (v->fat) {
+        vfs_node_t *f = vfs_resolve(path);
+        if (f) fat_write(vol_relpath(v, path), f->data ? f->data : (const void *)"", (uint32_t)f->size);
+    } else vol_sync(v);
+}
+void fs_on_delete(const char *path) {
+    vol_t *v = vol_for_path(path);
+    if (!v) { fs_save(); return; }
+    if (v->fat) fat_delete(vol_relpath(v, path));
+    else        vol_sync(v);
 }
 
-// Force l'ecriture de tout (disque systeme + tous les volumes montes).
+// Force l'ecriture de tout (disque systeme + volumes au format sexOs).
 void fs_sync_all(void) {
     fs_save();
-    for (int i = 0; i < MAX_VOL; i++) if (vols[i].used) vol_sync(&vols[i]);
+    for (int i = 0; i < MAX_VOL; i++) if (vols[i].used && !vols[i].fat) vol_sync(&vols[i]);
 }

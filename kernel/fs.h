@@ -16,7 +16,10 @@ void usbfs_mount(void);       // monte la cle USB sur /media/usb (formate si vie
 void usbfs_unmount(void);     // demonte /media/usb (cle retiree)
 int  usbfs_sync(void);        // ecrit /media/usb sur la cle USB (0/-1)
 bool usbfs_mounted(void);     // une cle USB est-elle montee ?
-int  fs_persist(const char *path); // persiste selon le chemin (volume concerne, sinon disque)
-void fs_sync_all(void);       // ecrit le disque systeme + tous les volumes montes
+// Persistance routee par chemin (volume FAT, volume sexOs, ou disque systeme).
+void fs_on_create(const char *path, int is_dir);
+void fs_on_write(const char *path);
+void fs_on_delete(const char *path);
+void fs_sync_all(void);       // ecrit le disque systeme + tous les volumes
 
 #endif
