@@ -175,7 +175,7 @@ static void cmd_help(void) {
     tprint("           cp mv rm mkdir touch nano sort uniq rev   (echo ... > fichier)\n");
     tprint("systeme  : help clear echo whoami id users su passwd uname about date\n");
     tprint("           sysinfo uptime free df sync ps lsusb sleep cal seq calc base64 history reboot\n");
-    tprint("USB      : lsusb   usbdisk   usbrd [lba]   usbwr <texte>\n");
+    tprint("USB      : lsusb  mount  usbdisk  usbrd [lba]  usbwr <texte>   (cle USB : /media/usb)\n");
     tprint("reseau   : ip resolve ping curl wget   ssh user@hote [cmd]\n");
     tprint("cles ssh : hostkey pubkey pubkey-add ssh-keygen\n");
     tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus beep play\n");
@@ -793,6 +793,22 @@ static void cmd_usbwr(const char *arg) {
         tprint("ecrit dans le secteur 0 de la cle USB -- verifie avec 'usbrd 0' (meme apres reboot)\n");
     else tprint("ecriture impossible\n");
 }
+// mount : liste les volumes de stockage montes.
+static void cmd_mount(void) {
+    tprint("volumes montes :\n");
+    sysinfo_t s; sys_sysinfo(&s);
+    tprint("  /            disque systeme ");
+    tprint(s.fs_persistent ? "(IDE, persistant)\n" : "(RAM, non persistant)\n");
+    usbdisk_t d; sys_usb_disk(&d);
+    if (d.present) {
+        char b[16];
+        tprint("  /media/usb   cle USB  ");
+        utoa((unsigned long)(((unsigned long long)d.block_count * d.block_size) >> 20), b);
+        tprint(b); tprint(" Mio  (cd /media/usb pour parcourir)\n");
+    } else {
+        tprint("  (aucune cle USB ; ajoute -device usb-storage,drive=...)\n");
+    }
+}
 static void cmd_sleep(const char *arg) {
     int s = 0; for (const char *p = arg; *p >= '0' && *p <= '9'; p++) s = s*10 + (*p - '0');
     if (s <= 0) { tprint("usage: sleep <secondes>\n"); return; }
@@ -1276,6 +1292,7 @@ static void run(char *line) {
     else if (!strcmp(cmd, "usbdisk")) cmd_usbdisk();
     else if (!strcmp(cmd, "usbrd")) cmd_usbrd(arg);
     else if (!strcmp(cmd, "usbwr")) cmd_usbwr(arg);
+    else if (!strcmp(cmd, "mount")) cmd_mount();
     else if (!strcmp(cmd, "sleep")) cmd_sleep(arg);
     else if (!strcmp(cmd, "cal")) cmd_cal();
     else if (!strcmp(cmd, "cowsay")) cmd_cowsay(arg);

@@ -223,6 +223,7 @@ void kmain(void) {
     // --- VFS + comptes côté NOYAU (partagés par sshd, pacman ET le bureau) ---
     vfs_init();
     fs_init();               // restaure l'arborescence depuis le disque si present
+    usbfs_mount();           // monte la cle USB sur /media/usb si presente
     users_init();
     // Session par défaut (la connexion en multi-processus n'est pas encore câblée).
     for (int i = 0; i < users_count(); i++)

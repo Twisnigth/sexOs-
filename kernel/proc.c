@@ -298,10 +298,14 @@ long syscall_dispatch(sysargs_t *a) {
     }
     case SYS_reboot:
         fs_save();                                  // sauvegarde avant de redemarrer
+        usbfs_sync();                               // + cle USB si montee
         outb(0x64, 0xFE);
         return 0;
-    case SYS_sync:
-        return fs_save();
+    case SYS_sync: {
+        int r = fs_save();
+        if (usbfs_mounted()) usbfs_sync();
+        return r;
+    }
     case SYS_beep:
         // beep() attend via pit_sleep_ms (hlt) : il FAUT les interruptions
         // (l'entree syscall les masque, FMASK). On les reactive le temps du bip.
@@ -448,7 +452,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *f = vfs_resolve(io->path);
         if (!f) return -1;
         int r = vfs_write(f, io->off, io->buf, io->len);
-        if (r >= 0) fs_save();                     // persistance automatique
+        if (r >= 0) fs_persist(io->path);          // persistance (disque ou cle USB)
         return r;
     }
     case SYS_vfs_create: {
@@ -465,7 +469,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *p = vfs_resolve(parent);
         if (!p || p->type != VFS_DIR) return -1;
         int r = vfs_create(p, name, (a->rsi ? VFS_DIR : VFS_FILE)) ? 0 : -1;
-        if (r == 0) fs_save();                      // persistance automatique
+        if (r == 0) fs_persist(path);               // persistance (disque ou cle USB)
         return r;
     }
     case SYS_vfs_delete: {
@@ -474,7 +478,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *n = vfs_resolve(path);
         if (!n) return -1;
         int r = vfs_delete(n) ? 0 : -1;
-        if (r == 0) fs_save();                      // persistance automatique
+        if (r == 0) fs_persist(path);               // persistance (disque ou cle USB)
         return r;
     }
     case SYS_vfs_save: {                          // remplace tout le fichier (tronque)
@@ -483,7 +487,7 @@ long syscall_dispatch(sysargs_t *a) {
         vfs_node_t *f = vfs_resolve(io->path);
         if (!f || f->type != VFS_FILE) return -1;
         int r = vfs_replace(f, io->buf, io->len);
-        if (r >= 0) fs_save();                      // persistance automatique
+        if (r >= 0) fs_persist(io->path);           // persistance (disque ou cle USB)
         return r;
     }
     case SYS_clip_set: {                          // presse-papiers : copier

@@ -10,6 +10,7 @@
 #include "fs.h"
 #include "ata.h"
 #include "vfs.h"
+#include "usb.h"
 #include "klib.h"
 
 #define FS_MAGIC "SEXOSFS1"
@@ -42,13 +43,17 @@ static size_t ser_node(vfs_node_t *n, uint8_t *b, size_t o) {
     }
     return o;
 }
+// Le dossier /media (points de montage : cle USB...) est gere separement et
+// n'est PAS inclus dans l'instantane du disque IDE.
+static bool is_mount_root(vfs_node_t *c) { return strcmp(c->name, "media") == 0; }
+
 static size_t fs_serialize(uint8_t *b) {
     memcpy(b, FS_MAGIC, 8);
     size_t o = 12;                                  // [8 magic][4 taille]
     vfs_node_t *r = vfs_root();
-    uint32_t cnt = 0; for (vfs_node_t *c = r->children; c; c = c->next) cnt++;
+    uint32_t cnt = 0; for (vfs_node_t *c = r->children; c; c = c->next) if (!is_mount_root(c)) cnt++;
     o = pu32(b, o, cnt);
-    for (vfs_node_t *c = r->children; c; c = c->next) o = ser_node(c, b, o);
+    for (vfs_node_t *c = r->children; c; c = c->next) if (!is_mount_root(c)) o = ser_node(c, b, o);
     pu32(b, 8, (uint32_t)o);                        // taille totale utilisee
     return o;
 }
@@ -107,4 +112,65 @@ void fs_init(void) {
         kprintf("[fs] disque vierge : ecriture de l'arborescence initiale\n");
         fs_save();
     }
+}
+
+// =============================================================================
+//  Cle USB montee sur /media/usb : meme format d'instantane, sur le disque USB
+// =============================================================================
+static bool usb_mounted;
+
+bool usbfs_mounted(void) { return usb_mounted; }
+
+int usbfs_sync(void) {
+    if (!usb_mounted || !usb_msc_present()) return -1;
+    vfs_node_t *usb = vfs_resolve("/media/usb");
+    if (!usb) return -1;
+    memcpy(image, FS_MAGIC, 8);
+    size_t o = 12;
+    uint32_t cnt = 0; for (vfs_node_t *c = usb->children; c; c = c->next) cnt++;
+    o = pu32(image, o, cnt);
+    for (vfs_node_t *c = usb->children; c; c = c->next) o = ser_node(c, image, o);
+    pu32(image, 8, (uint32_t)o);
+    uint32_t secs = (o + 511) / 512;
+    return usb_msc_write(0, secs, image) == 0 ? 0 : -1;
+}
+
+void usbfs_mount(void) {
+    if (!usb_msc_present()) return;
+    vfs_node_t *media = vfs_lookup(vfs_root(), "media");
+    if (!media) media = vfs_create(vfs_root(), "media", VFS_DIR);
+    vfs_node_t *usb = media ? vfs_lookup(media, "usb") : NULL;
+    if (!usb && media) usb = vfs_create(media, "usb", VFS_DIR);
+    if (!usb) return;
+    usb_mounted = true;
+
+    // tente de lire un instantane existant sur la cle
+    if (usb_msc_read(0, 1, image) == 0 && memcmp(image, FS_MAGIC, 8) == 0) {
+        uint32_t total = gu32(image, 8);
+        if (total >= 16 && total <= FS_CAP) {
+            uint32_t secs = (total + 511) / 512;
+            if (usb_msc_read(0, secs, image) == 0) {
+                size_t o = 12; uint32_t cnt = gu32(image, o); o += 4;
+                for (uint32_t i = 0; i < cnt && o < total; i++) o = deser_node(usb, image, o, total);
+                kprintf("[usbfs] cle USB montee sur /media/usb (%d entree(s))\n", cnt);
+                return;
+            }
+        }
+    }
+    // cle vierge / non reconnue : on l'initialise avec un instantane vide
+    if (usbfs_sync() == 0) kprintf("[usbfs] cle USB formatee et montee sur /media/usb\n");
+    else { usb_mounted = false; kprintf("[usbfs] cle USB presente mais montage impossible (E/S)\n"); }
+}
+
+// Persiste la mutation selon son chemin : la cle USB pour /media/usb, sinon le
+// disque systeme.
+static bool path_in_usb(const char *p) {
+    const char *m = "/media/usb";
+    if (!p) return false;
+    for (int i = 0; m[i]; i++) if (p[i] != m[i]) return false;
+    return p[10] == 0 || p[10] == '/';
+}
+int fs_persist(const char *path) {
+    if (path_in_usb(path)) return usbfs_sync();
+    return fs_save();
 }

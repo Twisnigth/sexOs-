@@ -33,7 +33,7 @@ static char      status[96];
 static char      preview[512];           // aperçu du fichier sélectionné
 static int       preview_len;
 
-static const char *toolbar[] = { "Haut", "Ouvrir", "NvDossier", "NvFichier", "Suppr", "Actualiser" };
+static const char *toolbar[] = { "Haut", "Ouvrir", "NvDossier", "NvFichier", "Suppr", "Actualiser", "CleUSB" };
 #define NBTN (int)(sizeof(toolbar)/sizeof(toolbar[0]))
 
 static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) { return ((uint32_t)r<<16)|((uint32_t)g<<8)|b; }
@@ -92,6 +92,13 @@ static void toolbar_action(int b) {
         case 3: mode = 2; ilen = 0; input[0] = 0; set_status("Nom du fichier puis Entree"); break;
         case 4: do_delete(); break;
         case 5: reload(); set_status("actualise"); break;
+        case 6: {                                  // raccourci vers la cle USB
+            dirent_t e;
+            if (sys_vfs_stat("/media/usb", &e) == 0) {
+                strcpy(cwd, "/media/usb"); sel = 0; reload(); set_status("cle USB");
+            } else set_status("aucune cle USB montee");
+            break;
+        }
     }
 }
 
