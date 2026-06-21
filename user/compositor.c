@@ -121,6 +121,97 @@ static int handle_dock_click(int cx, int cy) {
 }
 
 // Dessine le dock (barre des tâches), ses boutons et le menu déroulant.
+// --- Icones d'applications (dessinees a la volee, ~16x16) ---------------------
+static void ic_disc(int cx, int cy, int r, uint32_t col) {
+    for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++)
+        if (dx*dx + dy*dy <= r*r) canvas_put_pixel(&back, cx + dx, cy + dy, col);
+}
+static void ic_ring(int cx, int cy, int r, int r2, uint32_t col) {
+    for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++)
+        { int d = dx*dx + dy*dy; if (d <= r*r && d >= r2*r2) canvas_put_pixel(&back, cx + dx, cy + dy, col); }
+}
+static void draw_app_icon(int app, int x, int y) {
+    int cx = x + 8, cy = y + 8;
+    uint32_t dark = rgb(0x10,0x14,0x1c), scr = rgb(0x0a,0x0e,0x14), grey = rgb(0x9a,0xa4,0xb6);
+    switch (app) {
+        case APP_TERMINAL:
+            canvas_fill_rect(&back, x+1, y+1, 14, 14, rgb(0x18,0x1e,0x2a));
+            canvas_fill_rect(&back, x+2, y+3, 12, 10, scr);
+            canvas_draw_line(&back, x+4, y+5, x+7, y+8, rgb(0x6e,0xe7,0x9a));
+            canvas_draw_line(&back, x+7, y+8, x+4, y+11, rgb(0x6e,0xe7,0x9a));
+            canvas_fill_rect(&back, x+8, y+10, 4, 2, rgb(0x6e,0xe7,0x9a));
+            break;
+        case APP_FILES:
+            canvas_fill_rect(&back, x+1, y+3, 6, 3, rgb(0xc8,0xa8,0x30));
+            canvas_fill_rect(&back, x+1, y+5, 14, 9, rgb(0xe0,0xc4,0x4f));
+            canvas_fill_rect(&back, x+1, y+5, 14, 1, rgb(0xf2,0xda,0x84));
+            break;
+        case APP_CLOCK:
+            ic_disc(cx, cy, 7, rgb(0xeb,0xf0,0xf6)); ic_ring(cx, cy, 7, 6, rgb(0x2d,0x6c,0xdf));
+            canvas_draw_line(&back, cx, cy, cx, cy-4, rgb(0x22,0x2a,0x3a));
+            canvas_draw_line(&back, cx, cy, cx+3, cy+1, rgb(0x22,0x2a,0x3a));
+            break;
+        case APP_MONITOR:
+            canvas_fill_rect(&back, x+1, y+2, 14, 11, rgb(0x18,0x1e,0x2a));
+            canvas_fill_rect(&back, x+2, y+3, 12, 9, scr);
+            canvas_fill_rect(&back, x+4, y+8, 2, 3, rgb(0x6e,0xe7,0x9a));
+            canvas_fill_rect(&back, x+7, y+6, 2, 5, rgb(0xf0,0xc8,0x40));
+            canvas_fill_rect(&back, x+10, y+5, 2, 6, rgb(0xe0,0x50,0x50));
+            canvas_fill_rect(&back, x+5, y+13, 6, 1, grey);
+            break;
+        case APP_WEB:
+            ic_disc(cx, cy, 7, rgb(0x3f,0x9c,0xd8)); ic_ring(cx, cy, 7, 6, rgb(0xe6,0xf2,0xff));
+            canvas_draw_line(&back, cx-6, cy, cx+6, cy, rgb(0xe6,0xf2,0xff));
+            canvas_draw_line(&back, cx, cy-7, cx, cy+7, rgb(0xe6,0xf2,0xff));
+            ic_ring(cx, cy, 7, 6, rgb(0xe6,0xf2,0xff));
+            canvas_draw_line(&back, cx-3, cy-6, cx-3, cy+6, rgb(0xd2,0xe8,0xf8));
+            canvas_draw_line(&back, cx+3, cy-6, cx+3, cy+6, rgb(0xd2,0xe8,0xf8));
+            break;
+        case APP_SETTINGS: {
+            ic_disc(cx, cy, 6, grey);
+            canvas_fill_rect(&back, cx-1, y,    2, 3, grey); canvas_fill_rect(&back, cx-1, y+13, 2, 3, grey);
+            canvas_fill_rect(&back, x,   cy-1, 3, 2, grey); canvas_fill_rect(&back, x+13, cy-1, 3, 2, grey);
+            canvas_fill_rect(&back, x+2, y+2, 2, 2, grey);  canvas_fill_rect(&back, x+12, y+2, 2, 2, grey);
+            canvas_fill_rect(&back, x+2, y+12, 2, 2, grey); canvas_fill_rect(&back, x+12, y+12, 2, 2, grey);
+            ic_disc(cx, cy, 2, rgb(0x20,0x24,0x30));
+            break; }
+        case APP_CALC:
+            canvas_fill_rect(&back, x+2, y+1, 12, 14, rgb(0x3a,0x40,0x52));
+            canvas_fill_rect(&back, x+3, y+2, 10, 3, rgb(0xb8,0xe0,0xc0));
+            for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++)
+                canvas_fill_rect(&back, x+3 + c*4, y+7 + r*3, 2, 2, rgb(0xc8,0xd0,0xdc));
+            break;
+        case APP_PAINT:
+            ic_disc(cx, cy, 7, rgb(0xe8,0xe0,0xd0));
+            canvas_fill_rect(&back, x+4, y+4, 2, 2, rgb(0xe0,0x50,0x50));
+            canvas_fill_rect(&back, x+9, y+4, 2, 2, rgb(0x2d,0x6c,0xdf));
+            canvas_fill_rect(&back, x+11, y+8, 2, 2, rgb(0xf0,0xc8,0x40));
+            canvas_fill_rect(&back, x+5, y+10, 2, 2, rgb(0x4c,0xc0,0x6a));
+            ic_disc(cx+2, cy+2, 2, rgb(0x20,0x24,0x30));
+            break;
+        case APP_IMGVIEW:
+            canvas_fill_rect(&back, x+1, y+2, 14, 12, rgb(0x9a,0xc8,0xff));
+            canvas_draw_rect(&back, x+1, y+2, 14, 12, rgb(0xe6,0xec,0xf2));
+            ic_disc(x+5, y+6, 2, rgb(0xf0,0xc8,0x40));
+            for (int c = 2; c <= 13; c++) { int dd = c-9; if (dd<0) dd=-dd; int top = y+6+dd;
+                if (top < y+13) canvas_draw_vline(&back, x+c, top, y+13-top, rgb(0x4c,0xc0,0x6a)); }
+            break;
+        case APP_EDITOR:
+            canvas_fill_rect(&back, x+3, y+1, 10, 14, rgb(0xf2,0xf4,0xf8));
+            canvas_fill_rect(&back, x+10, y+1, 3, 3, rgb(0xc8,0xd0,0xdc));
+            for (int i = 0; i < 5; i++) canvas_fill_rect(&back, x+5, y+5 + i*2, 6, 1, rgb(0x8a,0x94,0xa4));
+            break;
+        case APP_LOGOUT:
+            ic_ring(cx, cy, 6, 4, rgb(0xe0,0x60,0x60));
+            canvas_fill_rect(&back, cx-3, y, 6, 4, rgb(0x20,0x24,0x30));   // ouverture en haut
+            canvas_fill_rect(&back, cx-1, y+1, 2, 7, rgb(0xe0,0x60,0x60)); // barre verticale
+            break;
+        default:
+            canvas_fill_rect(&back, x+1, y+1, 14, 14, grey);
+            break;
+    }
+}
+
 static void draw_dock(void) {
     int dock_y = back.height - DOCK_H;
     canvas_fill_rect(&back, 0, dock_y, back.width, DOCK_H, rgb(0x18, 0x1b, 0x26));
@@ -162,10 +253,9 @@ static void draw_dock(void) {
         canvas_fill_rect(&back, px, py, MENU_W, ph, rgb(0x20, 0x24, 0x30));
         canvas_draw_rect(&back, px, py, MENU_W, ph, rgb(0x3a, 0x42, 0x58));
         for (int k = 0; k < NMENU; k++) {
-            int iy = py + 6 + k * MENU_IH;
-            canvas_fill_rect(&back, px + 8, iy, 14, 14, g_menu[k].icon);
-            canvas_draw_rect(&back, px + 8, iy, 14, 14, rgb(0x10, 0x12, 0x18));
-            canvas_draw_string(&back, g_menu[k].name, px + 30, iy + 2, rgb(0xff, 0xff, 0xff), 1);
+            int iy = py + 5 + k * MENU_IH;
+            draw_app_icon(g_menu[k].app, px + 8, iy);
+            canvas_draw_string(&back, g_menu[k].name, px + 30, iy + 4, rgb(0xff, 0xff, 0xff), 1);
         }
     }
 }
