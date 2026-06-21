@@ -25,6 +25,7 @@
 #include "net.h"
 #include "crypto.h"
 #include "ssh.h"
+#include "clip.h"
 #include "speaker.h"
 #include "fs.h"
 #include "usb.h"
@@ -149,8 +150,6 @@ void syscall_init(void) {
 long syscall_dispatch(sysargs_t *a);     // défini plus bas
 
 // Presse-papiers global (copier/coller entre applications ring 3).
-static char g_clipboard[8192];
-static int  g_clip_len;
 static char g_spawn_arg[256];                 // chemin transmis a l'appli lancee (ex. editeur)
 
 // Point d'entrée unifié des appels système (cf. usermode.asm). Reçoit le
@@ -511,16 +510,12 @@ long syscall_dispatch(sysargs_t *a) {
         return r;
     }
     case SYS_clip_set: {                          // presse-papiers : copier
-        int n = (int)a->rsi; if (n < 0) n = 0;
-        if (n > (int)sizeof(g_clipboard)) n = sizeof(g_clipboard);
-        memcpy(g_clipboard, (const void *)a->rdi, n); g_clip_len = n;
-        return n;
+        int n = (int)a->rsi;
+        clip_kset((const char *)a->rdi, n);
+        return n < 0 ? 0 : n;
     }
     case SYS_clip_get: {                          // presse-papiers : coller
-        int max = (int)a->rsi; int n = g_clip_len < max ? g_clip_len : max;
-        if (n < 0) n = 0;
-        memcpy((void *)a->rdi, g_clipboard, n);
-        return n;
+        return clip_kget((char *)a->rdi, (int)a->rsi);
     }
     case SYS_arg_set: {                           // argument transmis a la prochaine appli
         const char *s = (const char *)a->rdi; int i = 0;

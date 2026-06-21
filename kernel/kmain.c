@@ -32,6 +32,7 @@
 #include "crypto.h"
 #include "ssh.h"
 #include "httpd.h"
+#include "vmware.h"
 #include "speaker.h"
 #include "fs.h"
 #include "usb.h"
@@ -247,6 +248,8 @@ void kmain(void) {
         if (nic_present()) sched_new_kernel_task("httpd", httpd_run);
         //  USB : tâche NOYAU qui scrute les périphériques HID (clavier/souris USB).
         sched_new_kernel_task("usb", usb_task);
+        //  VMware : presse-papiers partagé hôte<->invité (inactif hors VMware).
+        vmware_init();
         //  AUCUNE application n'est lancée au démarrage : seul le compositeur
         //  (le bureau) tourne. L'utilisateur lance les applications À LA DEMANDE
         //  depuis le menu du dock, qui appelle SYS_spawn (terminal, explorateur,
