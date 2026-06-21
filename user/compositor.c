@@ -15,12 +15,14 @@ void *memset(void *, int, unsigned long);
 
 void utoa(unsigned long, char *);
 
+typedef struct { uint8_t second, minute, hour, day, month; uint16_t year; } rtct_t;
+
 #define TB     22          // hauteur de la barre de titre
 #define MAXW   16
 #define DOCK_H 30          // hauteur de la barre des tâches (dock)
 
 typedef struct {
-    int used, id, owner, shm;
+    int used, id, owner, shm, min;   // min = fenetre reduite (cachee, presente dans le dock)
     uint32_t *px;          // tampon partagé (mappé dans le compositeur)
     int x, y, w, h;
     char title[32];
@@ -28,7 +30,15 @@ typedef struct {
 
 static win_t wins[MAXW];
 static int   next_id = 1, next_x = 80, next_y = 70;
-static canvas_t screen, back;
+static canvas_t screen, back, wall;        // wall = fond d'ecran precalcule
+
+// --- notifications (toast) ---------------------------------------------------
+static char     toast_msg[48];
+static uint64_t toast_until;
+static void notify(const char *m) {
+    int i = 0; while (m[i] && i < 47) { toast_msg[i] = m[i]; i++; } toast_msg[i] = 0;
+    toast_until = sys_time_ms() + 2500;
+}
 
 static inline uint32_t rgb(uint8_t r, uint8_t g, uint8_t b) {
     return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
@@ -39,16 +49,18 @@ static int top_index = -1;     // dernière fenêtre cliquée (focus / dessus)
 // --- Dock : menu de lancement d'applications ---------------------------------
 //  L'ordre/les identifiants doivent correspondre aux constantes APP_* (noyau).
 static int menu_open;
-static const struct { const char *name; int app; } g_menu[] = {
-    { "Terminal",    APP_TERMINAL },
-    { "Explorateur", APP_FILES    },
-    { "Horloge",     APP_CLOCK    },
-    { "Moniteur",    APP_MONITOR  },
-    { "Navigateur",  APP_WEB      },
-    { "Parametres",  APP_SETTINGS },
+static const struct { const char *name; int app; uint32_t icon; } g_menu[] = {
+    { "Terminal",     APP_TERMINAL, 0x2d6cdf },
+    { "Explorateur",  APP_FILES,    0xe0c44f },
+    { "Horloge",      APP_CLOCK,    0x6ee79a },
+    { "Moniteur",     APP_MONITOR,  0xe07f7f },
+    { "Navigateur",   APP_WEB,      0x4fb0e0 },
+    { "Parametres",   APP_SETTINGS, 0xb48cf0 },
+    { "Calculatrice", APP_CALC,     0xf0a020 },
+    { "Dessin",       APP_PAINT,    0xf060a0 },
 };
 #define NMENU  ((int)(sizeof g_menu / sizeof g_menu[0]))
-#define MENU_W 168
+#define MENU_W 178
 #define MENU_IH 26
 
 // Traite un clic sur le dock / le menu. Renvoie 1 si le clic est consommé
@@ -60,7 +72,7 @@ static int handle_dock_click(int cx, int cy) {
         int ph = NMENU * MENU_IH + 8, px = 6, py = dock_y - ph;
         if (cx >= px && cx < px + MENU_W && cy >= py && cy < py + ph) {
             int idx = (cy - py - 4) / MENU_IH;
-            if (idx >= 0 && idx < NMENU) sys_spawn(g_menu[idx].app);   // lance l'appli
+            if (idx >= 0 && idx < NMENU) { sys_spawn(g_menu[idx].app); notify(g_menu[idx].name); }
             menu_open = 0; return 1;
         }
         menu_open = 0;                       // clic hors du panneau : referme
@@ -70,11 +82,11 @@ static int handle_dock_click(int cx, int cy) {
     }
     if (cy < dock_y) return 0;               // clic dans les fenêtres
     if (on_menu_btn) { menu_open = 1; return 1; }
-    // Boutons des fenêtres ouvertes : focus + premier plan.
+    // Boutons des fenêtres ouvertes : focus + premier plan (restaure si réduite).
     int bx = 80;
     for (int i = 0; i < MAXW; i++) {
         if (!wins[i].used) continue;
-        if (cx >= bx && cx < bx + 140) { top_index = i; return 1; }
+        if (cx >= bx && cx < bx + 140) { top_index = i; wins[i].min = 0; return 1; }
         bx += 146;
     }
     return 1;                                // zone vide de la barre : consommé
@@ -98,19 +110,24 @@ static void draw_dock(void) {
         canvas_draw_string(&back, wins[i].title, bx + 8, dock_y + 9, rgb(0xe6, 0xec, 0xf2), 1);
         bx += 146;
     }
-    // Horloge (uptime) à droite.
-    char b[24], num[16]; utoa(sys_time_ms() / 1000, num);
-    int i = 0; const char *p = "up "; while (p[i]) { b[i] = p[i]; i++; }
-    int j = 0; while (num[j]) b[i++] = num[j++]; b[i++] = 's'; b[i] = 0;
-    canvas_draw_string(&back, b, back.width - 84, dock_y + 9, rgb(0x9a, 0xa6, 0xb4), 1);
-    // Menu déroulant.
+    // Horloge (heure réelle HH:MM:SS) à droite.
+    rtct_t t; sys_rtc(&t);
+    char hh[10];
+    hh[0]='0'+t.hour/10;   hh[1]='0'+t.hour%10;   hh[2]=':';
+    hh[3]='0'+t.minute/10; hh[4]='0'+t.minute%10; hh[5]=':';
+    hh[6]='0'+t.second/10; hh[7]='0'+t.second%10; hh[8]=0;
+    canvas_draw_string(&back, hh, back.width - 72, dock_y + 9, rgb(0xd0, 0xdc, 0xe8), 1);
+    // Menu déroulant (avec icônes colorées).
     if (menu_open) {
         int ph = NMENU * MENU_IH + 8, px = 6, py = dock_y - ph;
         canvas_fill_rect(&back, px, py, MENU_W, ph, rgb(0x20, 0x24, 0x30));
         canvas_draw_rect(&back, px, py, MENU_W, ph, rgb(0x3a, 0x42, 0x58));
-        for (int k = 0; k < NMENU; k++)
-            canvas_draw_string(&back, g_menu[k].name, px + 12, py + 8 + k * MENU_IH,
-                               rgb(0xff, 0xff, 0xff), 1);
+        for (int k = 0; k < NMENU; k++) {
+            int iy = py + 6 + k * MENU_IH;
+            canvas_fill_rect(&back, px + 8, iy, 14, 14, g_menu[k].icon);
+            canvas_draw_rect(&back, px + 8, iy, 14, 14, rgb(0x10, 0x12, 0x18));
+            canvas_draw_string(&back, g_menu[k].name, px + 30, iy + 2, rgb(0xff, 0xff, 0xff), 1);
+        }
     }
 }
 
@@ -148,6 +165,10 @@ static void draw_window(win_t *win, int focused) {
     canvas_fill_rect(&back, win->x, win->y, win->w, win->h + TB, rgb(0x20, 0x22, 0x2c));
     canvas_fill_rect(&back, win->x, win->y, win->w, TB, tb);
     canvas_draw_string(&back, win->title, win->x + 8, win->y + 4, rgb(255, 255, 255), 1);
+    // bouton reduire (orange) + son glyphe (barre)
+    canvas_fill_rect(&back, win->x + win->w - 36, win->y + 4, 14, 14, rgb(0xe0, 0xb0, 0x4f));
+    canvas_fill_rect(&back, win->x + win->w - 33, win->y + 13, 8, 2, rgb(0x20, 0x20, 0x20));
+    // bouton fermer (rouge)
     canvas_fill_rect(&back, win->x + win->w - 18, win->y + 4, 14, 14, rgb(0xe0, 0x4f, 0x4f));
     canvas_draw_string(&back, "x", win->x + win->w - 15, win->y + 4, rgb(255, 255, 255), 1);
     // contenu : tampon partagé de l'application
@@ -190,12 +211,31 @@ static void paint(int x, int y, int w, int h, int curx, int cury) {
 }
 // Recompose tout le bureau (sans curseur) dans 'back' (mémoire cache : rapide).
 static void compose_back(void) {
-    canvas_fill(&back, rgb(0x16, 0x18, 0x28));
+    canvas_blit(&back, &wall, 0, 0);          // fond d'ecran (degrade precalcule)
     canvas_draw_string(&back, "sexOs -- bureau ring 3 : cliquez sur \"Menu\" (en bas) pour lancer une application",
                        12, 8, rgb(0x9a, 0xc8, 0xff), 1);
-    for (int i = 0; i < MAXW; i++) if (wins[i].used && i != top_index) draw_window(&wins[i], 0);
-    if (top_index >= 0 && wins[top_index].used) draw_window(&wins[top_index], 1);
+    for (int i = 0; i < MAXW; i++) if (wins[i].used && !wins[i].min && i != top_index) draw_window(&wins[i], 0);
+    if (top_index >= 0 && wins[top_index].used && !wins[top_index].min) draw_window(&wins[top_index], 1);
     draw_dock();
+    // notification (toast) au-dessus du dock
+    if (sys_time_ms() < toast_until && toast_msg[0]) {
+        int tw = canvas_text_width(toast_msg, 1) + 24;
+        int tx = ((int)back.width - tw) / 2, ty = (int)back.height - DOCK_H - 40;
+        canvas_fill_rect(&back, tx, ty, tw, 26, rgb(0x2d, 0x34, 0x46));
+        canvas_draw_rect(&back, tx, ty, tw, 26, rgb(0x4a, 0x90, 0xe0));
+        canvas_draw_string(&back, toast_msg, tx + 12, ty + 9, rgb(0xe6, 0xec, 0xf2), 1);
+    }
+}
+
+// Construit le fond d'ecran (degrade vertical bleu nuit -> violet) une fois.
+static void build_wallpaper(void) {
+    for (int y = 0; y < (int)wall.height; y++) {
+        int t = (y * 255) / (int)wall.height;
+        uint8_t r = 0x12 + (uint8_t)((t * 0x1c) / 255);
+        uint8_t g = 0x14 + (uint8_t)((t * 0x10) / 255);
+        uint8_t b = 0x2a + (uint8_t)((t * 0x34) / 255);
+        canvas_fill_rect(&wall, 0, y, (int)wall.width, 1, rgb(r, g, b));
+    }
 }
 
 int main(void) {
@@ -206,6 +246,10 @@ int main(void) {
     back.width = fb.width; back.height = fb.height; back.pitch = fb.width * 4;
     back.pixels = (uint32_t *)sys_alloc((unsigned long)back.pitch * back.height);
     if (!back.pixels) return 2;
+    wall.width = fb.width; wall.height = fb.height; wall.pitch = fb.width * 4;
+    wall.pixels = (uint32_t *)sys_alloc((unsigned long)wall.pitch * wall.height);
+    if (!wall.pixels) return 2;
+    build_wallpaper();
 
     int cx = fb.width / 2, cy = fb.height / 2, prevb = 0;
     int drag = -1, ddx = 0, ddy = 0;
@@ -243,7 +287,7 @@ int main(void) {
                         // parcourt dans l'ordre de la pile (le focus en dernier)
                         int idx = (top_index >= 0) ? (top_index - i + 2 * MAXW) % MAXW : i;
                         win_t *w = &wins[idx];
-                        if (!w->used) continue;
+                        if (!w->used || w->min) continue;
                         if (cx >= w->x && cx < w->x + w->w && cy >= w->y && cy < w->y + w->h + TB) {
                             top_index = idx; need_recompose = 1; dirty_full();
                             if (cy < w->y + TB) {       // barre de titre
@@ -251,6 +295,8 @@ int main(void) {
                                     wmsg_t c; memset(&c, 0, sizeof c); c.type = WMSG_CLOSE; c.win = w->id;
                                     sys_ipc_send(w->owner, &c, sizeof c);
                                     w->used = 0;
+                                } else if (cx >= w->x + w->w - 36 && cx < w->x + w->w - 22) {
+                                    w->min = 1; top_index = -1;   // reduire
                                 } else { drag = idx; ddx = cx - w->x; ddy = cy - w->y; }
                             } else {
                                 send_event(w, &e);      // clic dans le contenu
@@ -278,6 +324,7 @@ int main(void) {
         if (now / 1000 != last_sec) {
             last_sec = now / 1000; need_recompose = 1;
             dirty_add(0, (int)back.height - DOCK_H, (int)back.width, DOCK_H);
+            dirty_add(0, (int)back.height - DOCK_H - 44, (int)back.width, 44);  // bande notifications
         }
 
         // (2c) Récupération des fenêtres orphelines (~toutes les 500 ms) : si le

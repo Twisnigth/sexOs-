@@ -35,6 +35,10 @@ global uweb_start
 global uweb_end
 global usettings_start
 global usettings_end
+global ucalc_start
+global ucalc_end
+global upaint_start
+global upaint_end
 
 utest_a_start:      incbin "build/obj/taskA.bin"
 utest_a_end:
@@ -66,5 +70,9 @@ uweb_start:         incbin "build/obj/web.elf"
 uweb_end:
 usettings_start:    incbin "build/obj/settings.elf"
 usettings_end:
+ucalc_start:        incbin "build/obj/calc.elf"
+ucalc_end:
+upaint_start:       incbin "build/obj/paint.elf"
+upaint_end:
 
 section .note.GNU-stack noalloc noexec nowrite progbits

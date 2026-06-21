@@ -24,7 +24,9 @@
 #define APP_MONITOR     3
 #define APP_WEB         4
 #define APP_SETTINGS    5
-#define APP_COUNT       6
+#define APP_CALC        6
+#define APP_PAINT       7
+#define APP_COUNT       8
 
 // --- IPC : messagerie + mémoire partagée -------------------------------------
 #define SYS_ipc_send    0x220      // ipc_send(dest_pid, buf, len)
