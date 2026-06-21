@@ -547,6 +547,8 @@ long syscall_dispatch(sysargs_t *a) {
         if (count == 0 || count > 256) return -1;
         return usb_msc_write(lba, count, (const void *)a->rsi);
     }
+    case SYS_usb_format:
+        return usbfs_format();
     case SYS_users_list: {
         const user_t *cu = users_get((int)a->rdi);
         if (!cu) return 0;

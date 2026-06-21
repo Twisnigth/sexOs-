@@ -20,6 +20,10 @@ bool fat_mount(fat_rd_t rd, fat_wr_t wr, struct vfs_node *mount);
 
 bool fat_active(void);   // un volume FAT est-il monte ?
 
+// Ecrit un systeme de fichiers FAT32 vierge sur le support (total_sec secteurs
+// de 512 o). Renvoie 0 si ok. ATTENTION : efface tout le contenu existant.
+int  fat_format(fat_rd_t rd, fat_wr_t wr, uint32_t total_sec);
+
 // Operations d'ecriture (le chemin est RELATIF a la racine du volume, ex.
 // "dossier/fichier.txt"). Renvoient 0 si ok, -1 sinon.
 int  fat_create(const char *relpath, bool is_dir);          // cree fichier/dossier vide

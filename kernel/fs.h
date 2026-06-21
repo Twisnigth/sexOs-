@@ -14,6 +14,7 @@ bool fs_present(void); // un disque persistant est-il disponible ?
 void fs_mount_volumes(void);  // monte au demarrage les volumes supplementaires
 void usbfs_mount(void);       // monte la cle USB sur /media/usb (formate si vierge)
 void usbfs_unmount(void);     // demonte /media/usb (cle retiree)
+int  usbfs_format(void);      // reformate la cle USB en FAT32 (efface tout) -> 0/-1
 int  usbfs_sync(void);        // ecrit /media/usb sur la cle USB (0/-1)
 bool usbfs_mounted(void);     // une cle USB est-elle montee ?
 // Persistance routee par chemin (volume FAT, volume sexOs, ou disque systeme).

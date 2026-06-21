@@ -83,6 +83,7 @@ static inline int  sys_usb_list(int i, usbinfo_t *u)   { return (int)_sc2(SYS_us
 static inline void sys_usb_disk(usbdisk_t *d)          { _sc1(SYS_usb_disk, (long)d); }
 static inline int  sys_usb_read(unsigned lba, void *b, unsigned count)        { return (int)_sc3(SYS_usb_read, lba, (long)b, count); }
 static inline int  sys_usb_write(unsigned lba, const void *b, unsigned count) { return (int)_sc3(SYS_usb_write, lba, (long)b, count); }
+static inline int  sys_usb_format(void)                { return (int)_sc0(SYS_usb_format); }
 
 // --- Réseau : sockets TCP non bloquantes + DNS -------------------------------
 static inline void sys_net_info(netinfo_t *ni)          { _sc1(SYS_net_info, (long)ni); }

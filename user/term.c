@@ -175,7 +175,7 @@ static void cmd_help(void) {
     tprint("           cp mv rm mkdir touch nano sort uniq rev   (echo ... > fichier)\n");
     tprint("systeme  : help clear echo whoami id users su passwd uname about date\n");
     tprint("           sysinfo uptime free df sync ps lsusb sleep cal seq calc base64 history reboot\n");
-    tprint("USB      : lsusb  mount  usbdisk  usbrd [lba]  usbwr <texte>   (cle USB : /media/usb)\n");
+    tprint("USB      : lsusb  mount  format usb  usbdisk  usbrd [lba]  usbwr <texte>   (cle USB : /media/usb)\n");
     tprint("reseau   : ip resolve ping curl wget   ssh user@hote [cmd]\n");
     tprint("cles ssh : hostkey pubkey pubkey-add ssh-keygen\n");
     tprint("fun      : cowsay cmatrix sex figlet fortune snake Phallus beep play\n");
@@ -806,6 +806,20 @@ static void cmd_usbwr(const char *arg) {
         tprint("ecrit dans le secteur 0 de la cle USB -- verifie avec 'usbrd 0' (meme apres reboot)\n");
     else tprint("ecriture impossible\n");
 }
+// format : reformate la cle USB en FAT32 (compatible Windows). EFFACE TOUT.
+static void cmd_format(const char *arg) {
+    if (strcmp(arg, "usb") != 0) {
+        tprint("usage: format usb   (reformate la cle USB en FAT32 -- EFFACE TOUT)\n");
+        return;
+    }
+    usbdisk_t d; sys_usb_disk(&d);
+    if (!d.present) { tprint("aucune cle USB detectee\n"); return; }
+    tprint("formatage FAT32 de la cle USB en cours (patiente)...\n"); redraw();
+    if (sys_usb_format() == 0)
+        tprint("OK : cle formatee en FAT32 et remontee sur /media/usb (lisible Windows/Mac)\n");
+    else
+        tprint("echec du formatage\n");
+}
 // mount : liste les volumes de stockage montes.
 static void cmd_mount(void) {
     tprint("volumes montes :\n");
@@ -1304,6 +1318,7 @@ static void run(char *line) {
     else if (!strcmp(cmd, "usbrd")) cmd_usbrd(arg);
     else if (!strcmp(cmd, "usbwr")) cmd_usbwr(arg);
     else if (!strcmp(cmd, "mount")) cmd_mount();
+    else if (!strcmp(cmd, "format")) cmd_format(arg);
     else if (!strcmp(cmd, "sleep")) cmd_sleep(arg);
     else if (!strcmp(cmd, "cal")) cmd_cal();
     else if (!strcmp(cmd, "cowsay")) cmd_cowsay(arg);

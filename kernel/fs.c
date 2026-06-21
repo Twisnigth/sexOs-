@@ -184,8 +184,9 @@ static const char *vol_relpath(vol_t *v, const char *path) {
 }
 
 // Monte un peripherique bloc sous /media/<name> : FAT32 si reconnu (lisible
-// Windows), sinon format interne sexOs (formate s'il est vierge).
-static void vol_mount(const char *name, blk_rd_t rd, blk_wr_t wr, const char *label) {
+// Windows), format interne sexOs si reconnu, sinon formate le support vierge en
+// FAT32 (cross-platform par defaut). 'nsec' = nombre de secteurs du support.
+static void vol_mount(const char *name, blk_rd_t rd, blk_wr_t wr, const char *label, uint32_t nsec) {
     vfs_node_t *node = media_child(name, true);
     if (!node) return;
     vol_t *v = NULL;
@@ -194,32 +195,39 @@ static void vol_mount(const char *name, blk_rd_t rd, blk_wr_t wr, const char *la
     v->used = true; v->fat = false; v->rd = rd; v->wr = wr;
     strcpy(v->mp, "/media/"); strcat(v->mp, name);
 
-    // 1) FAT32 (format universel) : un seul volume FAT gere a la fois
+    // 1) FAT32 deja present (format universel) : un seul volume FAT a la fois
     if (!any_fat && fat_mount(rd, wr, node)) {
         v->fat = true; any_fat = true;
         kprintf("[mount] %s monte sur %s (FAT32, lisible Windows/Mac)\n", label, v->mp);
         return;
     }
 
-    // 2) sinon : format interne sexOs (SEXOSFS1)
+    // 2) format interne sexOs (SEXOSFS1) deja present
     bool sig = rd(0, 1, image);
     if (sig && memcmp(image, FS_MAGIC, 8) == 0) {
         uint32_t total = gu32(image, 8);
         if (total >= 16 && total <= FS_CAP && rd(0, (total + 511) / 512, image)) {
             size_t o = 12; uint32_t cnt = gu32(image, o); o += 4;
             for (uint32_t i = 0; i < cnt && o < total; i++) o = deser_node(node, image, o, total);
-            kprintf("[mount] %s monte sur %s (%d entree(s))\n", label, v->mp, cnt);
+            kprintf("[mount] %s monte sur %s (%d entree(s), format sexOs)\n", label, v->mp, cnt);
             return;
         }
     }
     // SECURITE : ne JAMAIS ecraser un support deja formate qu'on ne sait pas lire
-    // (FAT32 non monte faute de place, exFAT, NTFS...). On preserve les donnees.
+    // (exFAT, NTFS, FAT non monte...). On preserve les donnees.
     if (sig && image[510] == 0x55 && image[511] == 0xAA) {
         v->used = false;
         kprintf("[mount] %s : format non reconnu (donnees preservees, non monte)\n", label);
         return;
     }
-    if (vol_write_node(v, node) == 0) kprintf("[mount] %s formate et monte sur %s\n", label, v->mp);
+    // 3) support vierge : on le formate en FAT32 (cross-platform par defaut)
+    if (!any_fat && nsec >= 70000 && fat_format(rd, wr, nsec) == 0 && fat_mount(rd, wr, node)) {
+        v->fat = true; any_fat = true;
+        kprintf("[mount] %s formate en FAT32 et monte sur %s (lisible Windows/Mac)\n", label, v->mp);
+        return;
+    }
+    // 4) repli : format interne sexOs
+    if (vol_write_node(v, node) == 0) kprintf("[mount] %s formate (sexOs) et monte sur %s\n", label, v->mp);
     else { v->used = false; kprintf("[mount] %s : montage impossible (E/S)\n", label); }
 }
 
@@ -246,7 +254,16 @@ bool usbfs_mounted(void) { return vol_for_path("/media/usb") != NULL; }
 
 void usbfs_mount(void) {     // monte la cle USB (appele aussi au branchement a chaud)
     if (usb_msc_present() && !usbfs_mounted())
-        vol_mount("usb", usbblk_rd, usbblk_wr, "cle USB");
+        vol_mount("usb", usbblk_rd, usbblk_wr, "cle USB", usb_msc_blocks());
+}
+
+// Reformate la cle USB en FAT32 (efface tout), puis la remonte.
+int usbfs_format(void) {
+    if (!usb_msc_present()) return -1;
+    usbfs_unmount();
+    if (fat_format(usbblk_rd, usbblk_wr, usb_msc_blocks()) != 0) return -1;
+    usbfs_mount();
+    return 0;
 }
 
 void usbfs_unmount(void) {   // cle retiree a chaud
@@ -266,7 +283,7 @@ int usbfs_sync(void) {
 
 // Monte au demarrage les volumes supplementaires (disque SATA + cle USB).
 void fs_mount_volumes(void) {
-    if (ahci_extra) vol_mount("disk", ahci_read, ahci_write, "disque SATA");
+    if (ahci_extra) vol_mount("disk", ahci_read, ahci_write, "disque SATA", ahci_sector_count());
     usbfs_mount();
 }
 

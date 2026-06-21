@@ -434,7 +434,6 @@ int fat_delete(const char *relpath) {
     int idx = find_in_dir(parent, leaf, &first, &attr);
     if (idx < 0) return -1;
     if (first >= 2) free_chain(first);
-    // marque l'entree courte ET les entrees LFN precedentes comme supprimees
     uint32_t ch[MAX_DIRCLUS]; int nc = dir_chain(parent, ch);
     for (int i = idx; i >= 0; i--) {
         uint8_t e[32];
@@ -442,7 +441,64 @@ int fat_delete(const char *relpath) {
         bool islfn = (i < idx && e[11] == 0x0F);
         e[0] = 0xE5;
         put_entry(ch, nc, i, e);
-        if (i < idx && !islfn) break;              // on s'arrete avant l'entree precedente
+        if (i < idx && !islfn) break;
     }
+    return 0;
+}
+
+// =============================================================================
+//  Formatage : ecrit un FAT32 vierge sur le support (efface tout)
+// =============================================================================
+static void w16(uint8_t *b, int o, uint16_t v) { b[o] = v; b[o+1] = v >> 8; }
+static void w32(uint8_t *b, int o, uint32_t v) { b[o]=v; b[o+1]=v>>8; b[o+2]=v>>16; b[o+3]=v>>24; }
+
+int fat_format(fat_rd_t rd, fat_wr_t wr, uint32_t total_sec) {
+    (void)rd;
+    if (total_sec < 70000) return -1;             // trop petit pour un FAT32 valide
+    uint8_t spc;
+    if      (total_sec <= 532480)    spc = 1;     // <= 260 Mio
+    else if (total_sec <= 16777216)  spc = 8;     // <= 8 Gio
+    else if (total_sec <= 33554432)  spc = 16;    // <= 16 Gio
+    else if (total_sec <= 67108864)  spc = 32;    // <= 32 Gio
+    else                             spc = 64;
+    uint32_t reserved = 32, numfats = 2;
+    uint32_t tmp1 = total_sec - reserved;
+    uint32_t tmp2 = (256u * spc + numfats) / 2;
+    uint32_t fatsz = (tmp1 + tmp2 - 1) / tmp2;
+    uint32_t data_start = reserved + numfats * fatsz;
+
+    uint8_t sec[512]; memset(sec, 0, 512);
+    sec[0]=0xEB; sec[1]=0x58; sec[2]=0x90;
+    memcpy(sec+3, "MSWIN4.1", 8);
+    w16(sec,11,512); sec[13]=spc; w16(sec,14,(uint16_t)reserved); sec[16]=(uint8_t)numfats;
+    w16(sec,17,0); w16(sec,19,0); sec[21]=0xF8; w16(sec,22,0);
+    w16(sec,24,63); w16(sec,26,255); w32(sec,28,0); w32(sec,32,total_sec);
+    w32(sec,36,fatsz); w16(sec,40,0); w16(sec,42,0); w32(sec,44,2);
+    w16(sec,48,1); w16(sec,50,6);
+    sec[66]=0x29; w32(sec,67,0x53455831);
+    memcpy(sec+71,"SEXOS USB  ",11);
+    memcpy(sec+82,"FAT32   ",8);
+    sec[510]=0x55; sec[511]=0xAA;
+    if (!wr(0,1,sec)) return -1;
+    wr(6,1,sec);                                   // boot de secours
+
+    uint8_t fsi[512]; memset(fsi,0,512);
+    w32(fsi,0,0x41615252); w32(fsi,484,0x61417272);
+    w32(fsi,488,(total_sec - data_start)/spc - 1); w32(fsi,492,3);
+    fsi[510]=0x55; fsi[511]=0xAA;
+    wr(1,1,fsi); wr(7,1,fsi);
+
+    // efface les deux FAT (les clusters libres doivent valoir 0)
+    memset(clbuf, 0, sizeof clbuf);
+    uint32_t chunk = sizeof(clbuf)/512, region = numfats*fatsz, done = 0;
+    while (done < region) { uint32_t n = region-done; if (n>chunk) n=chunk; if(!wr(reserved+done,n,clbuf)) return -1; done+=n; }
+    for (uint32_t f=0; f<numfats; f++) {
+        memset(sec,0,512);
+        w32(sec,0,0x0FFFFFF8); w32(sec,4,0x0FFFFFFF); w32(sec,8,0x0FFFFFFF);
+        wr(reserved + f*fatsz, 1, sec);
+    }
+    // efface le cluster racine
+    memset(clbuf,0,sizeof clbuf);
+    uint32_t rs=0; while (rs<spc) { uint32_t n=spc-rs; if(n>chunk)n=chunk; wr(data_start+rs,n,clbuf); rs+=n; }
     return 0;
 }
