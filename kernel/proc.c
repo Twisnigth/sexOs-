@@ -578,6 +578,7 @@ long syscall_dispatch(sysargs_t *a) {
         return usb_msc_write(lba, count, (const void *)a->rsi);
     }
     case SYS_usb_format:
+        if (!users_can_admin()) return -1;          // reformater : reserve a l'administrateur
         return usbfs_format();
     case SYS_users_list: {
         const user_t *cu = users_get((int)a->rdi);

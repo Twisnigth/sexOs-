@@ -55,6 +55,14 @@ static int top_index = -1;     // dernière fenêtre cliquée (focus / dessus)
 static int resizing = -1;      // fenêtre en cours de redimensionnement (bande élastique)
 static int rs_w, rs_h;         // taille en cours (pendant le glissement)
 
+// --- Session : ecran de connexion + utilisateur courant ----------------------
+#define APP_LOGOUT (-2)            // entree speciale du menu : se deconnecter
+static int authed;                 // 0 = ecran de connexion, 1 = bureau
+static userinfo_t g_users[8];
+static int  g_nusers, login_sel, login_pwlen;
+static char login_pw[64], login_err[48];
+static char cur_user[32]; static int cur_admin;
+
 // --- Dock : menu de lancement d'applications ---------------------------------
 //  L'ordre/les identifiants doivent correspondre aux constantes APP_* (noyau).
 static int menu_open;
@@ -69,6 +77,7 @@ static const struct { const char *name; int app; uint32_t icon; } g_menu[] = {
     { "Dessin",       APP_PAINT,    0xf060a0 },
     { "Images",       APP_IMGVIEW,  0x60c0f0 },
     { "Editeur",      APP_EDITOR,   0x9ad06a },
+    { "Deconnexion",  APP_LOGOUT,   0xe07f7f },
 };
 #define NMENU  ((int)(sizeof g_menu / sizeof g_menu[0]))
 static const char *app_name(int app) {
@@ -87,7 +96,11 @@ static int handle_dock_click(int cx, int cy) {
         int ph = NMENU * MENU_IH + 8, px = 6, py = dock_y - ph;
         if (cx >= px && cx < px + MENU_W && cy >= py && cy < py + ph) {
             int idx = (cy - py - 4) / MENU_IH;
-            if (idx >= 0 && idx < NMENU) { sys_spawn(g_menu[idx].app); notify(g_menu[idx].name); }
+            if (idx >= 0 && idx < NMENU) {
+                int app = g_menu[idx].app;
+                if (app == APP_LOGOUT) { authed = 0; login_pwlen = 0; login_pw[0] = 0; login_err[0] = 0; }
+                else { sys_spawn(app); notify(g_menu[idx].name); }
+            }
             menu_open = 0; return 1;
         }
         menu_open = 0;                       // clic hors du panneau : referme
@@ -132,6 +145,17 @@ static void draw_dock(void) {
     hh[3]='0'+t.minute/10; hh[4]='0'+t.minute%10; hh[5]=':';
     hh[6]='0'+t.second/10; hh[7]='0'+t.second%10; hh[8]=0;
     canvas_draw_string(&back, hh, back.width - 72, dock_y + 9, rgb(0xd0, 0xdc, 0xe8), 1);
+    // Utilisateur connecté (nom + pastille admin/standard) à gauche de l'horloge.
+    if (cur_user[0]) {
+        char ub[48]; int p = 0;
+        for (int i = 0; cur_user[i] && p < 31; i++) ub[p++] = cur_user[i];
+        if (cur_admin) { const char *a = " (admin)"; for (int i = 0; a[i]; i++) ub[p++] = a[i]; }
+        ub[p] = 0;
+        int uw = canvas_text_width(ub, 1);
+        canvas_fill_rect(&back, back.width - 86 - uw - 14, dock_y + 8, 8, 8,
+                         cur_admin ? rgb(0xe0, 0x8a, 0x40) : rgb(0x4c, 0xc0, 0x6a));
+        canvas_draw_string(&back, ub, back.width - 84 - uw, dock_y + 9, rgb(0xc8, 0xd0, 0xdc), 1);
+    }
     // Menu déroulant (avec icônes colorées).
     if (menu_open) {
         int ph = NMENU * MENU_IH + 8, px = 6, py = dock_y - ph;
@@ -389,6 +413,70 @@ static void load_wallpaper_pref(void) {
     if (n > 0) { path[n] = 0; set_wallpaper_image(path); }
 }
 
+// --- Ecran de connexion ------------------------------------------------------
+#define LG_ROW 30
+static void login_geom(int *px, int *py, int *pw, int *ph, int *listy) {
+    int W = back.width, H = back.height;
+    int pwid = 380, phgt = 160 + g_nusers * LG_ROW;
+    *px = (W - pwid) / 2; *py = (H - phgt) / 2; *pw = pwid; *ph = phgt;
+    *listy = *py + 70;
+}
+static int login_user_at(int cx, int cy) {
+    int px, py, pw, ph, ly; login_geom(&px, &py, &pw, &ph, &ly);
+    if (cx < px + 12 || cx > px + pw - 12) return -1;
+    for (int i = 0; i < g_nusers; i++) { int ry = ly + i * LG_ROW; if (cy >= ry - 2 && cy < ry + LG_ROW - 2) return i; }
+    return -1;
+}
+static void compose_login(void) {
+    canvas_blit(&back, &wall, 0, 0);
+    int px, py, pw, ph, ly; login_geom(&px, &py, &pw, &ph, &ly);
+    canvas_fill_rect(&back, px, py, pw, ph, rgb(0x1a, 0x1f, 0x2b));
+    canvas_draw_rect(&back, px, py, pw, ph, rgb(0x3a, 0x44, 0x58));
+    canvas_draw_string(&back, "sexOs", px + 20, py + 14, rgb(0x9a, 0xc8, 0xff), 2);
+    canvas_draw_string(&back, "Connexion -- choisissez un compte", px + 20, py + 44, rgb(0x9a, 0xa0, 0xb4), 1);
+    for (int i = 0; i < g_nusers; i++) {
+        int ry = ly + i * LG_ROW;
+        if (i == login_sel) canvas_fill_rect(&back, px + 12, ry - 2, pw - 24, LG_ROW - 2, rgb(0x2d, 0x6c, 0xdf));
+        canvas_fill_rect(&back, px + 20, ry + 3, 16, 16, g_users[i].is_admin ? rgb(0xe0, 0x8a, 0x40) : rgb(0x4c, 0xc0, 0x6a));
+        canvas_draw_string(&back, g_users[i].name, px + 44, ry + 4, rgb(0xff, 0xff, 0xff), 1);
+        if (g_users[i].is_admin)
+            canvas_draw_string(&back, "(admin)", px + 44 + canvas_text_width(g_users[i].name, 1) + 10, ry + 4, rgb(0xe0, 0xb0, 0x60), 1);
+    }
+    int fy = ly + g_nusers * LG_ROW + 14;
+    canvas_draw_string(&back, "Mot de passe :", px + 20, fy, rgb(0xc8, 0xd0, 0xdc), 1);
+    int bx = px + 20, by = fy + 18, bw = pw - 40, bh = 22;
+    canvas_fill_rect(&back, bx, by, bw, bh, rgb(0x0e, 0x12, 0x18));
+    canvas_draw_rect(&back, bx, by, bw, bh, rgb(0x3a, 0x44, 0x58));
+    char dots[64]; int n = login_pwlen < 60 ? login_pwlen : 60; for (int i = 0; i < n; i++) dots[i] = '*'; dots[n] = 0;
+    canvas_draw_string(&back, dots, bx + 6, by + 6, rgb(0xff, 0xff, 0x99), 1);
+    canvas_draw_string(&back, "[Entree] se connecter   [Haut/Bas] changer de compte", px + 20, by + bh + 9, rgb(0x6a, 0x76, 0x86), 1);
+    if (login_err[0]) canvas_draw_string(&back, login_err, px + 20, by + bh + 25, rgb(0xff, 0x80, 0x80), 1);
+}
+static void do_login(void) {
+    login_pw[login_pwlen] = 0;
+    if (login_sel < 0 || login_sel >= g_nusers) return;
+    if (sys_login(g_users[login_sel].name, login_pw) == 0) {
+        authed = 1;
+        int i = 0; while (g_users[login_sel].name[i] && i < 31) { cur_user[i] = g_users[login_sel].name[i]; i++; }
+        cur_user[i] = 0; cur_admin = g_users[login_sel].is_admin;
+        login_pwlen = 0; login_pw[0] = 0; login_err[0] = 0;
+    } else { strcpy(login_err, "mot de passe incorrect"); login_pwlen = 0; login_pw[0] = 0; }
+}
+static int login_event(const event_t *e) {
+    if (e->type == EV_MOUSE) {
+        if (e->buttons & MOUSE_LEFT) { int u = login_user_at(e->mx, e->my); if (u >= 0) { login_sel = u; return 1; } }
+        return 0;
+    }
+    if (e->type == EV_KEY && e->pressed) {
+        if (e->key == KEY_ENTER) { do_login(); return 1; }
+        if (e->key == KEY_BACKSPACE) { if (login_pwlen > 0) login_pw[--login_pwlen] = 0; return 1; }
+        if (e->key == KEY_UP)   { if (login_sel > 0) login_sel--; return 1; }
+        if (e->key == KEY_DOWN || e->key == KEY_TAB) { if (g_nusers) login_sel = (login_sel + 1) % g_nusers; return 1; }
+        if (e->ch >= ' ' && login_pwlen < (int)sizeof(login_pw) - 1) { login_pw[login_pwlen++] = e->ch; login_pw[login_pwlen] = 0; return 1; }
+    }
+    return 0;
+}
+
 int main(void) {
     sys_comp_register();
     fbinfo_t fb; if (sys_fb_map(&fb)) return 1;
@@ -402,6 +490,11 @@ int main(void) {
     if (!wall.pixels) return 2;
     build_wallpaper();
     load_wallpaper_pref();                 // restaure un fond d'ecran personnalise s'il existe
+
+    // Comptes pour l'ecran de connexion (au demarrage : verrouille).
+    g_nusers = 0;
+    for (int i = 0; i < 8 && sys_users_list(i, &g_users[i]) == 1; i++) g_nusers++;
+    authed = 0;
 
     int cx = fb.width / 2, cy = fb.height / 2, prevb = 0;
     int drag = -1, ddx = 0, ddy = 0;
@@ -436,6 +529,8 @@ int main(void) {
         // (2) Entrées : focus / déplacement / fermeture, sinon routage au focus.
         event_t e; int buttons = prevb;
         while (sys_input_poll(&e)) {
+            if (e.type == EV_MOUSE) { cx = e.mx; cy = e.my; }   // suivre le curseur meme verrouille
+            if (!authed) { if (login_event(&e)) { need_recompose = 1; dirty_full(); } continue; }
             if (e.type == EV_MOUSE) {
                 cx = e.mx; cy = e.my; buttons = e.buttons;
                 int pressed = (buttons & MOUSE_LEFT) && !(prevb & MOUSE_LEFT);
@@ -521,7 +616,7 @@ int main(void) {
         //  curseur se déplace, on dessine la NOUVELLE position AVANT d'effacer
         //  l'ancienne : le curseur reste donc visible en permanence.
         if (need_recompose) {
-            compose_back();
+            if (authed) compose_back(); else compose_login();
             if (d_full || !d_any) paint(0, 0, (int)screen.width, (int)screen.height, cx, cy);
             else paint(d_x0, d_y0, d_x1 - d_x0, d_y1 - d_y0, cx, cy);
         }
