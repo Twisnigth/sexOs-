@@ -157,7 +157,44 @@ static bool wait_bit(uint32_t off, uint32_t mask, uint32_t val, uint32_t loops) 
     return false;
 }
 
-// --- anneau d'evenements : lit le prochain evenement (scrutation, borne) -----
+// --- Prise de possession BIOS -> OS du contrôleur (handoff xHCI) -------------
+//  Sur du vrai matériel, le firmware possède le contrôleur (clavier USB dans le
+//  BIOS) via SMM. Tant que l'OS ne réclame pas la propriété, l'USB ne s'initialise
+//  pas. On parcourt les capacités étendues, on trouve « USB Legacy Support », on
+//  pose le bit « OS Owned », on attend que « BIOS Owned » se libère, puis on coupe
+//  les SMI du BIOS. Inoffensif en VM (souvent pas de capacité étendue).
+static void xhci_handoff(volatile uint8_t *capb) {
+    uint32_t hcc = rd32(capb, 0x10);                 // HCCPARAMS1
+    uint32_t xecp = (hcc >> 16) & 0xFFFF;            // pointeur (en dwords) vers les xECP
+    if (!xecp) return;
+    volatile uint8_t *p = capb + (uint32_t)xecp * 4;
+    for (int guard = 0; guard < 64; guard++) {
+        uint32_t c = rd32(p, 0);
+        uint8_t id = c & 0xFF;
+        if (id == 0) break;
+        if (id == 1) {                                // USB Legacy Support Capability
+            if (c & (1u << 16)) {                     // BIOS possède le contrôleur
+                wr32(p, 0, c | (1u << 24));           // OS Owned Semaphore
+                int ok = 0;
+                for (int i = 0; i < 100000; i++) {
+                    if (!(rd32(p, 0) & (1u << 16))) { ok = 1; break; }
+                    spin(30);
+                }
+                kprintf("[xhci] handoff BIOS->OS %s\n", ok ? "ok" : "timeout");
+            }
+            // USBLEGCTLSTS (xECP+4) : coupe les SMI et acquitte les statuts (RW1C).
+            uint32_t ctl = rd32(p, 4);
+            ctl = (ctl & ((0x7u << 1) | (0xffu << 5) | (0x7u << 17))) | (0x7u << 29);
+            wr32(p, 4, ctl);
+            return;
+        }
+        uint8_t next = (c >> 8) & 0xFF;
+        if (!next) break;
+        p += (uint32_t)next * 4;
+    }
+}
+
+
 static bool next_event(trb_t *out, uint32_t loops) {
     for (uint32_t i = 0; i < loops; i++) {
         trb_t *e = &evt_ring[evt_idx];
@@ -844,6 +881,8 @@ void usb_init(void) {
     num_ports = (hcs1 >> 24) & 0xFF;
     kprintf("[xhci] xHCI v%x, caplen=%d, %d slots, %d ports (dboff=%x rtsoff=%x)\n",
             hciver, caplen, max_slots, num_ports, dboff, rtsoff);
+
+    xhci_handoff(cap);          // reclame le controleur au BIOS (vrai materiel)
 
     // stop + reset
     wr32(op, O_USBCMD, rd32(op, O_USBCMD) & ~1u);
