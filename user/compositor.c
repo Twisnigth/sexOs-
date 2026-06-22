@@ -541,6 +541,9 @@ static void compose_login(void) {
     canvas_draw_string(&back, dots, bx + 6, by + 6, rgb(0xff, 0xff, 0x99), 1);
     canvas_draw_string(&back, "[Entree] se connecter   [Haut/Bas] changer de compte", px + 20, by + bh + 9, rgb(0x6a, 0x76, 0x86), 1);
     if (login_err[0]) canvas_draw_string(&back, login_err, px + 20, by + bh + 25, rgb(0xff, 0x80, 0x80), 1);
+    // Diagnostic USB (utile pour le depannage sur vrai materiel).
+    char ud[192]; int udn = sys_usb_diag(ud, sizeof ud); if (udn <= 0) ud[0] = 0;
+    if (ud[0]) canvas_draw_string(&back, ud, 12, (int)back.height - 16, rgb(0x6a, 0x86, 0x76), 1);
 }
 static void do_login(void) {
     login_pw[login_pwlen] = 0;

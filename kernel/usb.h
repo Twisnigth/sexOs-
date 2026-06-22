@@ -22,6 +22,8 @@ void  usb_task(void);                        // tache noyau : scrute les HID (cl
 int   usb_count(void);
 const usb_dev_t *usb_get(int i);
 
+const char *usb_diagnostic(void);           // resume lisible de l'etat USB (pour l'ecran)
+
 // --- Stockage de masse USB (Bulk-Only Transport + SCSI) ----------------------
 bool     usb_msc_present(void);              // un disque USB est-il pret ?
 uint32_t usb_msc_blocks(void);              // nombre de secteurs

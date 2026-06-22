@@ -71,6 +71,7 @@ static inline long sys_vfs_save(vfs_io_t *io)   { return _sc1(SYS_vfs_save, (lon
 static inline int  sys_vfs_stat(const char *p, dirent_t *e) { return (int)_sc2(SYS_vfs_stat, (long)p, (long)e); }
 static inline int  sys_clip_set(const void *b, int n) { return (int)_sc2(SYS_clip_set, (long)b, n); }
 static inline int  sys_clip_get(void *b, int n)       { return (int)_sc2(SYS_clip_get, (long)b, n); }
+static inline int  sys_usb_diag(char *b, int n) { return (int)_sc2(SYS_usb_diag, (long)b, n); }
 static inline int  sys_arg_set(const char *p)   { return (int)_sc1(SYS_arg_set, (long)p); }
 static inline int  sys_arg_get(char *b, int n)  { return (int)_sc2(SYS_arg_get, (long)b, n); }
 static inline void sys_whoami(userinfo_t *u)    { _sc1(SYS_whoami, (long)u); }

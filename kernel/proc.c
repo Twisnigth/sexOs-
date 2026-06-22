@@ -580,6 +580,11 @@ long syscall_dispatch(sysargs_t *a) {
     case SYS_usb_format:
         if (!users_can_admin()) return -1;          // reformater : reserve a l'administrateur
         return usbfs_format();
+    case SYS_usb_diag: {
+        const char *d = usb_diagnostic(); char *o = (char *)a->rdi; int max = (int)a->rsi, i = 0;
+        if (o && max > 0) { while (d[i] && i < max - 1) { o[i] = d[i]; i++; } o[i] = 0; }
+        return i;
+    }
     case SYS_users_list: {
         const user_t *cu = users_get((int)a->rdi);
         if (!cu) return 0;

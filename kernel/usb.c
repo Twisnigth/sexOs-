@@ -45,6 +45,14 @@ static volatile uint32_t *db;               // sonnettes (doorbells)
 static int max_slots, num_ports;
 static bool xhci_ok;
 
+// --- Diagnostic USB (lisible a l'ecran : kprintf ne sort que sur le port serie) -
+static char        usb_diag[192] = "USB: initialisation...";
+static const char *handoff_res = "n/a";
+static void diag_set(const char *s) { strcpy(usb_diag, s); }
+static void diag_add(const char *s) { if (strlen(usb_diag) + strlen(s) < sizeof(usb_diag) - 1) strcat(usb_diag, s); }
+static void diag_num(uint64_t v) { char n[24]; utoa(v, n, 10); diag_add(n); }
+const char *usb_diagnostic(void) { return usb_diag; }
+
 static trb_t   *cmd_ring;   static uint64_t cmd_ring_phys; static int cmd_idx; static uint8_t cmd_cycle;
 static trb_t   *evt_ring;   static uint64_t evt_ring_phys; static int evt_idx; static uint8_t evt_cycle;
 static uint64_t *dcbaa;     static uint64_t dcbaa_phys;
@@ -166,7 +174,7 @@ static bool wait_bit(uint32_t off, uint32_t mask, uint32_t val, uint32_t loops) 
 static void xhci_handoff(volatile uint8_t *capb) {
     uint32_t hcc = rd32(capb, 0x10);                 // HCCPARAMS1
     uint32_t xecp = (hcc >> 16) & 0xFFFF;            // pointeur (en dwords) vers les xECP
-    if (!xecp) return;
+    if (!xecp) { handoff_res = "no-cap"; return; }
     volatile uint8_t *p = capb + (uint32_t)xecp * 4;
     for (int guard = 0; guard < 64; guard++) {
         uint32_t c = rd32(p, 0);
@@ -180,8 +188,9 @@ static void xhci_handoff(volatile uint8_t *capb) {
                     if (!(rd32(p, 0) & (1u << 16))) { ok = 1; break; }
                     spin(30);
                 }
+                handoff_res = ok ? "ok" : "timeout";
                 kprintf("[xhci] handoff BIOS->OS %s\n", ok ? "ok" : "timeout");
-            }
+            } else handoff_res = "libre";
             // USBLEGCTLSTS (xECP+4) : coupe les SMI et acquitte les statuts (RW1C).
             uint32_t ctl = rd32(p, 4);
             ctl = (ctl & ((0x7u << 1) | (0xffu << 5) | (0x7u << 17))) | (0x7u << 29);
@@ -843,12 +852,18 @@ void usb_init(void) {
     // (UHCI/EHCI pour l'USB 1/2 + xHCI pour l'USB 3). Il faut donc parcourir
     // TOUS les périphériques PCI, pas seulement le premier contrôleur USB.
     const pci_device_t *dev = NULL;
+    int n_usb = 0;                       // nombre de controleurs USB PCI (toutes versions)
     for (int i = 0; i < pci_device_count(); i++) {
         const pci_device_t *d = pci_get_device(i);
-        if (d->class_code == 0x0C && d->subclass == 0x03 && d->prog_if == 0x30) { dev = d; break; }
+        if (d->class_code == 0x0C && d->subclass == 0x03) {
+            n_usb++;
+            if (d->prog_if == 0x30 && !dev) dev = d;       // xHCI (USB 3.x)
+        }
     }
     if (!dev) {
-        kprintf("[usb] pas de controleur xHCI\n");
+        diag_set("USB: aucun controleur xHCI (ctrl USB PCI=");
+        diag_num(n_usb); diag_add(")");
+        kprintf("[usb] pas de controleur xHCI (ctrl USB PCI=%d)\n", n_usb);
         return;
     }
     // active MMIO + bus master
@@ -925,6 +940,15 @@ void usb_init(void) {
     if (!wait_bit(O_USBSTS, 1, 0, 60000)) { kprintf("[xhci] demarrage timeout\n"); return; }
     xhci_ok = true;
 
+    // Alimente TOUS les ports (Port Power, bit 9). Indispensable sur le vrai
+    // materiel : beaucoup de controleurs (portables) laissent les ports hors
+    // tension par defaut -> sans ca, CCS reste a 0 et AUCUN peripherique n'est vu.
+    for (int p = 1; p <= num_ports; p++) {
+        uint32_t sc = rd32(op, O_PORTSC(p));
+        if (!(sc & (1u << 9))) wr32(op, O_PORTSC(p), (sc & 0x0E00C3E0) | (1u << 9));
+    }
+    spin(8000000);          // stabilisation de l'alimentation + debounce de connexion
+
     // reset + enumeration des ports connectes
     for (int p = 1; p <= num_ports; p++) {
         uint32_t sc = rd32(op, O_PORTSC(p));
@@ -936,6 +960,10 @@ void usb_init(void) {
         sc = rd32(op, O_PORTSC(p));
         if (sc & (1u << 1)) enumerate_port(p);          // PED : port active
     }
+    int conn = 0; for (int p = 1; p <= num_ports; p++) if (rd32(op, O_PORTSC(p)) & 1) conn++;
+    diag_set("xHCI v"); diag_num(hciver); diag_add(", "); diag_num(num_ports);
+    diag_add(" ports, ho="); diag_add(handoff_res);
+    diag_add(", connectes="); diag_num(conn); diag_add(", dev="); diag_num(dev_count);
     kprintf("[usb] %d peripherique(s) USB detecte(s)\n", dev_count);
 
     // configure d'abord le stockage de masse (poignee de main SCSI sans HID),

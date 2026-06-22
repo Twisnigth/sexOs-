@@ -56,6 +56,7 @@
 #define SYS_usb_read    0x258      // (lba, buf, count) -> 0/-1 (lit des secteurs)
 #define SYS_usb_write   0x259      // (lba, buf, count) -> 0/-1 (ecrit des secteurs)
 #define SYS_usb_format  0x25a      // reformate la cle USB en FAT32 (efface tout) -> 0/-1
+#define SYS_usb_diag    0x25b      // (buf, max) -> resume texte de l'etat USB (pour l'ecran)
 
 // --- Système -----------------------------------------------------------------
 #define SYS_reboot      0x260      // redémarre la machine (sauvegarde le disque avant)
