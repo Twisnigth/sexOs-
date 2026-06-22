@@ -1,0 +1,91 @@
+// =============================================================================
+//  kernel/sched.h -- Ordonnanceur multi-processus (ring 3) — Phase 1
+// -----------------------------------------------------------------------------
+//  Modèle : plusieurs tâches ring 3, chacune avec son espace d'adressage (PML4),
+//  sa pile noyau (rsp0 du TSS), et son contexte de registres complet. Préemption
+//  par l'IRQ du minuteur (PIT) ; commutation aussi à la sortie d'un processus
+//  (exit) et lorsqu'une tâche faute (kill-on-fault).
+// =============================================================================
+#ifndef SEXOS_SCHED_H
+#define SEXOS_SCHED_H
+
+#include <stdint.h>
+#include <stddef.h>
+#include "idt.h"
+
+#define SCHED_MAX_TASKS 16
+
+// --- Messagerie inter-processus (IPC) ----------------------------------------
+#define IPC_MSG_MAX  128       // octets utiles par message
+#define IPC_MBOX_LEN 32        // messages en attente par tâche
+typedef struct { int sender; int len; uint8_t data[IPC_MSG_MAX]; } ipc_msg_t;
+
+typedef enum { TASK_UNUSED = 0, TASK_READY, TASK_RUNNING, TASK_BLOCKED, TASK_ZOMBIE } task_state_t;
+
+typedef struct task {
+    int          pid;
+    task_state_t state;
+    uint64_t     pml4;          // espace d'adressage (adresse physique du PML4)
+    uint64_t     kstack;        // base de la pile noyau (à libérer)
+    uint64_t     kstack_top;    // sommet de la pile noyau (rsp0 du TSS)
+    uint64_t     ctx;           // pile noyau sauvegardée -> pointe sur un registers_t
+    uint64_t     fs_base;       // base FS par tâche (TLS)
+    uint64_t     brk;
+    uint64_t     mmap_base;
+    uint64_t     shm_next;      // prochaine VA libre pour mapper de la mémoire partagée
+    ipc_msg_t    mbox[IPC_MBOX_LEN];
+    int          mbox_head, mbox_tail;
+    int          exit_code;
+    uint64_t     cpu_ticks;     // tops du minuteur passés à exécuter CETTE tâche
+    uint64_t     mem_pages;     // pages physiques attribuées (approx., pour le moniteur)
+    uint64_t     wake_at;       // si BLOCKED + non nul : échéance de réveil (ms PIT)
+    const char  *name;
+} task_t;
+
+// Endort la tâche NOYAU courante pendant ms (la retire de la file d'exécution :
+// elle ne consomme plus de tranches CPU). Pour les services qui scrutent.
+void sched_sleep_ms(uint32_t ms);
+
+// IPC : recherche d'une tâche par pid (pour la livraison de messages).
+task_t *sched_task_by_pid(int pid);
+// Moniteur d'activité : renvoie la i-ème tâche non-UNUSED (ou NULL au-delà).
+task_t *sched_task_at(int index);
+// Comptabilise des pages allouées à la tâche courante (mmap/shm/framebuffer...).
+void    sched_account_pages(uint64_t pages);
+
+// La tâche courante a changé d'état (BLOCKED/READY/ZOMBIE) et son contexte est
+// déjà sauvegardé dans 'r' : choisit la tâche suivante et renvoie son contexte.
+// Utilisé par les appels système bloquants / yield / exit.
+registers_t *sched_switch_from(registers_t *r);
+// Réveille une tâche bloquée (l'a remet prête).
+void sched_wake(task_t *t);
+
+// Crée une tâche ring 3 à partir d'un binaire « plat » chargé à 0x400000.
+int  sched_new_flat_task(const char *name, const uint8_t *code, size_t len);
+// Crée une tâche ring 3 à partir d'un exécutable ELF64 statique.
+int  sched_new_elf_task(const char *name, const uint8_t *elf, size_t len);
+// Crée une tâche NOYAU (ring 0) qui exécute fn() ; utile pour les services
+// internes ordonnancés (ex. la pile réseau qui pompe le NIC en continu).
+int  sched_new_kernel_task(const char *name, void (*fn)(void));
+
+// Lance l'ordonnanceur et exécute les tâches prêtes ; revient à l'appelant
+// quand il n'y a plus AUCUNE tâche prête (mode démo de la Phase 1).
+void sched_run_until_idle(void);
+
+// Démarre l'ordonnanceur pour de bon : ne revient JAMAIS. S'il n'y a pas de
+// tâche prête, exécute une tâche idle noyau (hlt). C'est le modèle final :
+// kmain crée la tâche init (le bureau) puis appelle ceci.
+void sched_start(void);
+
+// Appelés depuis le répartiteur d'interruptions (idt.c).
+registers_t *sched_on_timer(registers_t *r);     // préemption PIT
+registers_t *sched_on_fault(registers_t *r);     // faute ring 3 -> tue la tâche
+int          sched_active(void);
+
+// Sortie volontaire (appelée par le syscall exit). Ne revient jamais.
+void sched_task_exit(int code);
+
+// Identité de la tâche courante (pour les syscalls).
+task_t *sched_current(void);
+
+#endif

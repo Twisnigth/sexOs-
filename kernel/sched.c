@@ -1,0 +1,339 @@
+// =============================================================================
+//  kernel/sched.c -- Ordonnanceur multi-processus ring 3 (Phase 1)
+// =============================================================================
+#include "sched.h"
+#include "vmm.h"
+#include "pmm.h"
+#include "heap.h"
+#include "gdt.h"
+#include "boot.h"
+#include "elf.h"
+#include "klib.h"
+#include "serial.h"
+#include "pit.h"
+
+// Primitives assembleur (switch.asm).
+extern void sched_resume(registers_t *ctx);        // reprend une tâche, sans retour
+extern void sched_save_and_run(registers_t *first); // sauve le noyau, lance la 1re
+extern void sched_return(void);                     // revient au noyau (mode démo)
+extern uint64_t kernel_rsp;                         // pile noyau de l'entrée syscall
+
+// --- MSR FS base (TLS par tâche) ---------------------------------------------
+#define MSR_FSBASE 0xC0000100
+static inline void wrmsr(uint32_t msr, uint64_t v) {
+    __asm__ volatile ("wrmsr" : : "c"(msr), "a"((uint32_t)v), "d"((uint32_t)(v >> 32)));
+}
+
+// Sélecteurs ring 3 (cf. usermode.asm).
+#define USER_CS 0x1b
+#define USER_SS 0x23
+#define USER_RFLAGS 0x202
+
+#define KSTACK_SIZE     16384
+#define USER_LOAD_ADDR  0x400000ULL
+#define USER_STACK_TOP  0x7000000000ULL
+#define USER_STACK_SZ   (64 * 1024)
+
+static task_t tasks[SCHED_MAX_TASKS];
+static task_t *current;
+static int  next_pid = 1;
+static int  rr_last;                 // dernier indice servi (round-robin)
+static int  active;                  // ordonnanceur en cours d'exécution
+static uint64_t kernel_cr3;
+static task_t *idle_task;            // tâche noyau de repli (hlt)
+
+int     sched_active(void)  { return active; }
+task_t *sched_current(void) { return current; }
+
+static void back_to_kernel(void);     // défini plus bas (mode démo)
+
+// --- Création d'une tâche ----------------------------------------------------
+static task_t *alloc_slot(void) {
+    for (int i = 0; i < SCHED_MAX_TASKS; i++)
+        if (tasks[i].state == TASK_UNUSED) return &tasks[i];
+    return NULL;
+}
+
+// Finalise une tâche : pile utilisateur, pile noyau, contexte initial ring 3.
+//  'code_pages' = pages physiques du binaire chargé (pour le moniteur d'activité).
+static int finish_task(task_t *t, const char *name, uint64_t pml4,
+                       uint64_t entry, uint64_t brk, uint64_t code_pages) {
+    // Pile utilisateur.
+    for (uint64_t off = 0; off < USER_STACK_SZ; off += 4096) {
+        uint64_t phys = pmm_alloc_page();
+        if (!phys) return -1;
+        vmm_map_page_in(pml4, USER_STACK_TOP - USER_STACK_SZ + off, phys,
+                        PTE_USER | PTE_WRITE);
+    }
+    // Pile noyau (sert de rsp0 et porte le contexte sauvegardé).
+    uint8_t *kstack = (uint8_t *)kmalloc(KSTACK_SIZE);
+    if (!kstack) return -1;
+    uint64_t ktop = ((uint64_t)kstack + KSTACK_SIZE) & ~0xFULL;
+
+    // Contexte initial : un registers_t qui, restauré + iretq, entre en ring 3.
+    registers_t *f = (registers_t *)(ktop - sizeof(registers_t));
+    memset(f, 0, sizeof(*f));
+    f->rip    = entry;
+    f->cs     = USER_CS;
+    f->rflags = USER_RFLAGS;
+    f->rsp    = USER_STACK_TOP - 16;
+    f->ss     = USER_SS;
+
+    t->pid        = next_pid++;
+    t->state      = TASK_READY;
+    t->pml4       = pml4;
+    t->kstack     = (uint64_t)kstack;
+    t->kstack_top = ktop;
+    t->ctx        = (uint64_t)f;
+    t->fs_base    = 0;
+    t->brk        = brk;
+    t->mmap_base  = 0x100000000000ULL;
+    t->shm_next   = 0xC0000000ULL;     // zone de mappage de la mémoire partagée
+    t->mbox_head  = t->mbox_tail = 0;
+    t->exit_code  = 0;
+    t->cpu_ticks  = 0;
+    // Mémoire résidente initiale : binaire + pile utilisateur + pile noyau.
+    t->mem_pages  = code_pages + (USER_STACK_SZ / 4096) + (KSTACK_SIZE / 4096);
+    t->name       = name;
+    return t->pid;
+}
+
+// Comptabilise des pages supplémentaires sur la tâche courante (mmap/shm/fb).
+void sched_account_pages(uint64_t pages) {
+    if (current) current->mem_pages += pages;
+}
+
+// i-ème tâche non-UNUSED (idle inclus) — pour SYS_proc_list.
+task_t *sched_task_at(int index) {
+    int n = 0;
+    for (int i = 0; i < SCHED_MAX_TASKS; i++) {
+        if (tasks[i].state == TASK_UNUSED) continue;
+        if (n++ == index) return &tasks[i];
+    }
+    return NULL;
+}
+
+task_t *sched_task_by_pid(int pid) {
+    for (int i = 0; i < SCHED_MAX_TASKS; i++)
+        if (tasks[i].state != TASK_UNUSED && tasks[i].pid == pid) return &tasks[i];
+    return NULL;
+}
+
+int sched_new_flat_task(const char *name, const uint8_t *code, size_t len) {
+    task_t *t = alloc_slot();
+    if (!t) return -1;
+    uint64_t pml4 = vmm_new_address_space();
+    if (!pml4) return -1;
+
+    // Charge le binaire « plat » à USER_LOAD_ADDR (code + données, inscriptible).
+    uint64_t code_pages = 0;
+    for (uint64_t off = 0; off < len; off += 4096) {
+        uint64_t phys = pmm_alloc_page();
+        if (!phys) return -1;
+        uint8_t *dst = (uint8_t *)phys_to_virt(phys);
+        size_t n = (len - off < 4096) ? (len - off) : 4096;
+        memset(dst, 0, 4096);
+        memcpy(dst, code + off, n);
+        vmm_map_page_in(pml4, USER_LOAD_ADDR + off, phys, PTE_USER | PTE_WRITE);
+        code_pages++;
+    }
+    return finish_task(t, name, pml4, USER_LOAD_ADDR, 0, code_pages);
+}
+
+int sched_new_elf_task(const char *name, const uint8_t *elf, size_t len) {
+    task_t *t = alloc_slot();
+    if (!t) return -1;
+    uint64_t pml4 = vmm_new_address_space();
+    if (!pml4) return -1;
+    uint64_t brk_end = 0, code_pages = 0;
+    uint64_t entry = elf_load(pml4, elf, len, &brk_end, &code_pages);
+    if (!entry) return -1;
+    return finish_task(t, name, pml4, entry, brk_end, code_pages);
+}
+
+// Crée une tâche NOYAU ring 0 (cs=0x08) qui démarre sur fn(). Elle partage
+// l'espace d'adressage du noyau et s'exécute avec les interruptions activées.
+int sched_new_kernel_task(const char *name, void (*fn)(void)) {
+    task_t *t = alloc_slot();
+    if (!t) return -1;
+    uint8_t *kstack = (uint8_t *)kmalloc(KSTACK_SIZE);
+    if (!kstack) return -1;
+    uint64_t ktop = ((uint64_t)kstack + KSTACK_SIZE) & ~0xFULL;
+    registers_t *f = (registers_t *)(ktop - sizeof(registers_t));
+    memset(f, 0, sizeof(*f));
+    f->rip = (uint64_t)fn;
+    f->cs = 0x08;                       // code noyau
+    f->rflags = 0x202;                  // IF=1
+    f->rsp = ktop - 256;
+    f->ss = 0x10;                       // données noyau
+    t->pid        = next_pid++;
+    t->state      = TASK_READY;
+    t->pml4       = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;  // espace noyau
+    t->kstack     = (uint64_t)kstack;
+    t->kstack_top = ktop;
+    t->ctx        = (uint64_t)f;
+    t->fs_base    = 0;
+    t->cpu_ticks  = 0;
+    t->mem_pages  = KSTACK_SIZE / 4096;
+    t->name       = name;
+    return t->pid;
+}
+
+// --- Sélection round-robin (l'idle n'est choisi qu'en dernier recours) -------
+static task_t *pick_next(void) {
+    for (int i = 0; i < SCHED_MAX_TASKS; i++) {
+        int idx = (rr_last + 1 + i) % SCHED_MAX_TASKS;
+        task_t *t = &tasks[idx];
+        if (t->state == TASK_READY && t != idle_task) { rr_last = idx; return t; }
+    }
+    if (idle_task && idle_task->state == TASK_READY) return idle_task;
+    return NULL;
+}
+
+// Installe l'espace d'adressage / la pile noyau / la base FS de la tâche.
+static void install(task_t *t) {
+    current = t;
+    t->state = TASK_RUNNING;
+    vmm_switch(t->pml4);
+    tss_set_rsp0(t->kstack_top);
+    kernel_rsp = t->kstack_top;        // l'entrée syscall utilise la pile de CETTE tâche
+    wrmsr(MSR_FSBASE, t->fs_base);
+}
+
+// Appel système bloquant / yield / exit : le contexte de la tâche courante est
+// sauvegardé dans r (et son état déjà positionné par l'appelant). On choisit la
+// tâche suivante et on renvoie son contexte à reprendre.
+registers_t *sched_switch_from(registers_t *r) {
+    if (current) current->ctx = (uint64_t)r;
+    task_t *n = pick_next();
+    if (!n) {
+        if (idle_task) n = idle_task;     // modèle final : tâche idle
+        else back_to_kernel();            // mode démo : retour au noyau (ne revient pas)
+    }
+    install(n);
+    return (registers_t *)n->ctx;
+}
+
+void sched_wake(task_t *t) {
+    if (t && t->state == TASK_BLOCKED) { t->state = TASK_READY; t->wake_at = 0; }
+}
+
+// Endort la tâche noyau courante : elle quitte la file d'exécution (ne consomme
+// plus de tranches) jusqu'à l'échéance, réveillée par le minuteur.
+void sched_sleep_ms(uint32_t ms) {
+    if (!active || !current || current == idle_task) {
+        uint64_t t = pit_ms() + ms;
+        while (pit_ms() < t) __asm__ volatile ("hlt");
+        return;
+    }
+    current->wake_at = pit_ms() + ms;
+    current->state   = TASK_BLOCKED;
+    // L'IRQ minuteur commute hors de cette tâche (état BLOCKED) ; au réveil
+    // (état READY/RUNNING) la condition redevient fausse et on rend la main.
+    while (current->state == TASK_BLOCKED) __asm__ volatile ("hlt" ::: "memory");
+}
+
+// Repli vers le noyau quand plus aucune tâche n'est prête (mode démo).
+static void back_to_kernel(void) {
+    active = 0;
+    current = NULL;
+    vmm_switch(kernel_cr3);
+    __asm__ volatile ("mov $0x10, %%ax\n\t mov %%ax, %%ds\n\t mov %%ax, %%es\n\t"
+                      "mov %%ax, %%fs\n\t mov %%ax, %%gs" ::: "ax");
+    wrmsr(MSR_FSBASE, 0);
+    sched_return();                 // ne revient pas ici
+}
+
+// --- Points d'entrée depuis le répartiteur d'interruptions -------------------
+registers_t *sched_on_timer(registers_t *r) {
+    if (!active || !current) return r;
+    // réveille les tâches endormies dont l'échéance est passée
+    uint64_t now = pit_ms();
+    for (int i = 0; i < SCHED_MAX_TASKS; i++)
+        if (tasks[i].state == TASK_BLOCKED && tasks[i].wake_at && tasks[i].wake_at <= now) {
+            tasks[i].state = TASK_READY; tasks[i].wake_at = 0;
+        }
+    current->cpu_ticks++;                        // le top écoulé a servi CETTE tâche
+    current->ctx = (uint64_t)r;                 // sauvegarde le point de préemption
+    if (current->state == TASK_RUNNING) current->state = TASK_READY;
+    task_t *n = pick_next();
+    if (!n) { back_to_kernel(); }               // (ne revient pas si vraiment vide)
+    install(n);
+    return (registers_t *)n->ctx;
+}
+
+registers_t *sched_on_fault(registers_t *r) {
+    // La tâche courante a fauté en ring 3 : on la tue, le noyau survit.
+    kprintf("[sched] pid=%d (%s) tue : faute ring3 (cs=%x rip=%p)\n",
+            current ? current->pid : -1, current ? current->name : "?",
+            (unsigned)r->cs, (void *)r->rip);
+    if (current) current->state = TASK_ZOMBIE;
+    task_t *n = pick_next();
+    if (!n) back_to_kernel();                   // ne revient pas
+    install(n);
+    return (registers_t *)n->ctx;
+}
+
+void sched_task_exit(int code) {
+    if (current) { current->exit_code = code; current->state = TASK_ZOMBIE; }
+    kprintf("[sched] pid=%d (%s) termine, code=%d\n",
+            current ? current->pid : -1, current ? current->name : "?", code);
+    task_t *n = pick_next();
+    if (!n) back_to_kernel();                   // ne revient pas
+    install(n);
+    sched_resume((registers_t *)n->ctx);        // ne revient pas
+}
+
+// --- Boucle de démarrage (mode démo Phase 1) ---------------------------------
+void sched_run_until_idle(void) {
+    kernel_cr3 = vmm_current_cr3();
+    rr_last = SCHED_MAX_TASKS - 1;
+    task_t *first = pick_next();
+    if (!first) return;                         // rien à exécuter
+    // Handoff atomique (cf. sched_start) : pas de préemption entre install() et
+    // l'iretq. L'iretq de sched_save_and_run restaure IF=1 dans la tâche, donc
+    // la préemption (entrelacement A/B) reprend bien une fois en ring 3.
+    __asm__ volatile ("cli");
+    active = 1;
+    install(first);
+    sched_save_and_run((registers_t *)first->ctx);  // revient via back_to_kernel
+    // On est revenu en abandonnant un contexte d'interruption/syscall : IF=0.
+    __asm__ volatile ("sti");
+}
+
+// --- Tâche idle noyau (ring 0) -----------------------------------------------
+static uint8_t idle_stack[8192] __attribute__((aligned(16)));
+static void idle_fn(void) { for (;;) __asm__ volatile ("hlt"); }
+
+static void create_idle(void) {
+    task_t *t = alloc_slot();
+    uint64_t ktop = ((uint64_t)idle_stack + sizeof(idle_stack)) & ~0xFULL;
+    registers_t *f = (registers_t *)(ktop - sizeof(registers_t));
+    memset(f, 0, sizeof(*f));
+    f->rip = (uint64_t)idle_fn;
+    f->cs = 0x08;                       // code noyau
+    f->rflags = 0x202;                  // IF=1
+    f->rsp = ktop - 256;
+    f->ss = 0x10;                       // données noyau
+    t->pid = 0; t->state = TASK_READY; t->pml4 = vmm_current_cr3() & 0x000FFFFFFFFFF000ULL;
+    t->kstack_top = ktop; t->ctx = (uint64_t)f; t->fs_base = 0; t->name = "idle";
+    t->cpu_ticks = 0; t->mem_pages = sizeof(idle_stack) / 4096;
+    idle_task = t;
+}
+
+// Démarre l'ordonnanceur pour de bon (ne revient jamais).
+void sched_start(void) {
+    // Section critique : entre install() et l'iretq de reprise, le contexte de
+    // la 1re tâche ne doit PAS être écrasé par une préemption du minuteur (qui
+    // appellerait sched_on_timer et sauvegarderait un cadre noyau dans ctx).
+    // L'iretq de sched_resume restaure le RFLAGS de la tâche (IF=1) : les
+    // interruptions reprennent une fois en ring 3.
+    __asm__ volatile ("cli");
+    kernel_cr3 = vmm_current_cr3();
+    if (!idle_task) create_idle();
+    rr_last = SCHED_MAX_TASKS - 1;
+    active = 1;
+    task_t *first = pick_next();
+    install(first);
+    sched_resume((registers_t *)first->ctx);   // ne revient jamais
+}
